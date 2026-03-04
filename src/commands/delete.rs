@@ -37,14 +37,15 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
 }
 
 async fn delete_personal(config: &crate::config::Config, file_id: &str) -> Result<(), ClientError> {
-    let host = crate::client::api::get_personal_cloud_host(config).await?;
+    let mut config = config.clone();
+    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/recyclebin/batchTrash", host);
 
     let body = serde_json::json!({
         "fileIds": [file_id]
     });
 
-    let resp: BatchTrashResp = crate::client::api::personal_api_request(config, &url, body).await?;
+    let resp: BatchTrashResp = crate::client::api::personal_api_request(&config, &url, body).await?;
 
     if resp.base.success {
         println!("文件已移动到回收站");

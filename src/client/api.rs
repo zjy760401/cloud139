@@ -2,7 +2,7 @@ use crate::client::ClientError;
 use crate::config::Config;
 use crate::models::QueryRoutePolicyResp;
 
-pub async fn get_personal_cloud_host(config: &Config) -> Result<String, ClientError> {
+pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, ClientError> {
     if let Some(ref host) = config.personal_cloud_host {
         return Ok(host.clone());
     }
@@ -57,6 +57,9 @@ pub async fn get_personal_cloud_host(config: &Config) -> Result<String, ClientEr
         .find(|p| p.mod_name == "personal")
         .map(|p| p.https_url)
         .ok_or_else(|| ClientError::Other("Could not find personal cloud host".to_string()))?;
+
+    config.personal_cloud_host = Some(host.clone());
+    let _ = config.save();
 
     Ok(host)
 }

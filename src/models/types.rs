@@ -169,6 +169,8 @@ pub struct DownloadUrlData {
     pub url: String,
     #[serde(rename = "cdnUrl")]
     pub cdn_url: Option<String>,
+    #[serde(rename = "fileName")]
+    pub file_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

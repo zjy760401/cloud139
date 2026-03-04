@@ -31,7 +31,8 @@ pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
 }
 
 async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
-    let host = crate::client::api::get_personal_cloud_host(config).await?;
+    let mut config = config.clone();
+    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);
 
     let parent_file_id = if parent == "/" || parent.is_empty() {
@@ -43,13 +44,16 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
     let body = serde_json::json!({
         "parentFileId": parent_file_id,
         "name": name,
-        "type": "folder"
+        "description": "",
+        "type": "folder",
+        "fileRenameMode": "force_rename"
     });
 
-    let resp: PersonalUploadResp = crate::client::api::personal_api_request(config, &url, body).await?;
+    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body).await?;
 
     if resp.base.success {
         println!("目录创建成功: {}", resp.data.file_name);
+        let _ = config.save();
     } else {
         println!("创建失败: {}", resp.base.message);
     }

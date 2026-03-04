@@ -36,14 +36,15 @@ async fn download_personal(
     file_id: &str,
     local_path: &str,
 ) -> Result<(), ClientError> {
-    let host = crate::client::api::get_personal_cloud_host(config).await?;
+    let mut config = config.clone();
+    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/getDownloadUrl", host);
 
     let body = serde_json::json!({
         "fileId": file_id,
     });
 
-    let resp: DownloadUrlResp = crate::client::api::personal_api_request(config, &url, body).await?;
+    let resp: DownloadUrlResp = crate::client::api::personal_api_request(&config, &url, body).await?;
 
     if !resp.base.success {
         println!("获取下载链接失败: {}", resp.base.message);
@@ -55,10 +56,14 @@ async fn download_personal(
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {
-        let file_name = Path::new(file_id)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("download");
+        let file_name = resp.data.file_name
+            .unwrap_or_else(|| {
+                Path::new(file_id)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("download")
+                    .to_string()
+            });
         let file_path = local_path_obj.join(file_name);
         download_file(&download_url, &file_path).await?;
     } else {

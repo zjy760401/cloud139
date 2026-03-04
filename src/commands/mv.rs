@@ -31,7 +31,8 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
 }
 
 async fn mv_personal(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
-    let host = crate::client::api::get_personal_cloud_host(config).await?;
+    let mut config = config.clone();
+    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/batchMove", host);
 
     let body = serde_json::json!({
@@ -40,7 +41,7 @@ async fn mv_personal(config: &crate::config::Config, source: &str, target: &str)
         "fileRenameMode": "auto_rename"
     });
 
-    let resp: BatchMoveResp = crate::client::api::personal_api_request(config, &url, body).await?;
+    let resp: BatchMoveResp = crate::client::api::personal_api_request(&config, &url, body).await?;
 
     if resp.base.success {
         println!("移动成功");

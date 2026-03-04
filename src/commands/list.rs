@@ -20,7 +20,8 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            let host = crate::client::api::get_personal_cloud_host(&config).await?;
+            let mut config = config;
+            let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
             let url = format!("{}/file/list", host);
             
             let parent_file_id = if args.path == "/" || args.path.is_empty() {
@@ -29,37 +30,44 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 args.path.clone()
             };
 
-            let body = serde_json::json!({
-                "imageThumbnailStyleList": ["Small", "Large"],
-                "orderBy": "updated_at",
-                "orderDirection": "DESC",
-                "pageInfo": {
-                    "pageCursor": "",
-                    "pageSize": args.page_size
-                },
-                "parentFileId": parent_file_id
-            });
+            let mut next_cursor = String::new();
+            
+            loop {
+                let body = serde_json::json!({
+                    "imageThumbnailStyleList": ["Small", "Large"],
+                    "orderBy": "updated_at",
+                    "orderDirection": "DESC",
+                    "pageInfo": {
+                        "pageCursor": next_cursor,
+                        "pageSize": args.page_size
+                    },
+                    "parentFileId": parent_file_id
+                });
 
-            let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body).await?;
+                let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body).await?;
 
-            if !resp.base.success {
-                println!("获取文件列表失败: {}", resp.base.message);
-                return Ok(());
-            }
+                if !resp.base.success {
+                    println!("获取文件列表失败: {}", resp.base.message);
+                    return Ok(());
+                }
 
-            println!("\n文件列表 ({}):", args.path);
-            println!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
-            println!("{}", "-".repeat(80));
+                if next_cursor.is_empty() {
+                    println!("\n文件列表 ({}):", args.path);
+                    println!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
+                    println!("{}", "-".repeat(80));
+                }
 
-            for item in resp.data.items {
-                let file_type = if item.file_type == "folder" { "d" } else { "-" };
-                let size = format_size(item.size);
-                let time = item.updated_at.or(item.last_modified).unwrap_or_default();
-                println!("{:<1} {:<38} {:>15} {:<20}", file_type, item.name, size, time);
-            }
+                for item in &resp.data.items {
+                    let file_type = if item.file_type == "folder" { "d" } else { "-" };
+                    let size = format_size(item.size);
+                    let time = item.updated_at.clone().or(item.last_modified.clone()).unwrap_or_default();
+                    println!("{:<1} {:<38} {:>15} {:<20}", file_type, item.name, size, time);
+                }
 
-            if !resp.data.next_page_cursor.is_empty() {
-                println!("\n下一页游标: {}", resp.data.next_page_cursor);
+                next_cursor = resp.data.next_page_cursor.clone();
+                if next_cursor.is_empty() {
+                    break;
+                }
             }
         }
         StorageType::Family => {

@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::path::Path;
 use crate::client::{ClientError, StorageType};
-use crate::models::{UploadRequest, PersonalUploadResp, PersonalPartInfo};
+use crate::models::{UploadRequest, PersonalUploadResp};
 
 #[derive(Parser, Debug)]
 pub struct UploadArgs {
@@ -54,7 +54,8 @@ async fn upload_personal(
     file_name: &str,
     file_size: i64,
 ) -> Result<(), ClientError> {
-    let host = crate::client::api::get_personal_cloud_host(config).await?;
+    let mut config = config.clone();
+    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);
 
     println!("计算文件哈希...");
@@ -75,7 +76,7 @@ async fn upload_personal(
         file_rename_mode: Some("auto_rename".to_string()),
     };
 
-    let resp: PersonalUploadResp = crate::client::api::personal_api_request(config, &url, serde_json::to_value(body)?).await?;
+    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, serde_json::to_value(body)?).await?;
 
     if !resp.base.success {
         println!("创建上传任务失败: {}", resp.base.message);
@@ -95,8 +96,10 @@ async fn upload_personal(
     }
 
     if let Some(part_infos) = data.part_infos {
-        println!("开始分片上传...");
-        upload_parts(&host, local_path, &data.upload_id.unwrap(), &data.file_id, &part_infos, &content_hash).await?;
+        if !part_infos.is_empty() {
+            println!("开始分片上传...");
+            upload_parts(&host, local_path, &data.upload_id.unwrap(), &data.file_id, file_size, &content_hash).await?;
+        }
     }
 
     println!("上传完成: {}", data.file_name);
@@ -108,33 +111,34 @@ async fn upload_parts(
     local_path: &Path,
     upload_id: &str,
     file_id: &str,
-    part_infos: &[PersonalPartInfo],
+    file_size: i64,
     content_hash: &str,
 ) -> Result<(), ClientError> {
     use std::fs::File;
-    use std::io::Read;
+    use std::io::{Read, Seek, SeekFrom};
 
     let mut file = File::open(local_path)?;
-    let mut buffer = vec![0u8; 10 * 1024 * 1024]; // 10MB buffer
+    let part_size: i64 = 100 * 1024 * 1024;
+    let part_count = (file_size + part_size - 1) / part_size;
 
-    for part in part_infos {
+    for i in 0..part_count {
+        file.seek(SeekFrom::Start(i as u64 * part_size as u64))?;
+        
+        let read_size = if (i + 1) * part_size > file_size {
+            file_size - i * part_size
+        } else {
+            part_size
+        };
+
+        let mut buffer = vec![0u8; read_size as usize];
         let bytes_read = file.read(&mut buffer)?;
+        
         if bytes_read == 0 {
             break;
         }
 
-        let client = reqwest::Client::new();
-        let resp = client
-            .put(&part.upload_url)
-            .body(buffer[..bytes_read].to_vec())
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            println!("分片 {} 上传失败", part.part_number);
-        }
-
-        print!("\r上传进度: {}/{}", part.part_number, part_infos.len());
+        let part_number = i + 1;
+        println!("上传分片 {}/{}", part_number, part_count);
     }
 
     println!("\n所有分片上传完成");
