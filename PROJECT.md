@@ -602,6 +602,7 @@ fn default_true() -> bool { true }
 ### 12.1 SHA1 哈希
 ```rust
 // 格式: sha1("fetion.com.cn:{password}")
+// 用于登录时密码加密
 pub fn sha1_hash(data: &str) -> String;
 ```
 
@@ -610,38 +611,196 @@ pub fn sha1_hash(data: &str) -> String;
 pub fn md5_hash(data: &str) -> String;
 ```
 
-### 12.3 AES-ECB 加密/解密
+### 12.3 AES-CBC 加密/解密（双层）
+用于 step3 第三方登录请求，采用 AES-128-CBC 加密。
+
 ```rust
 // 两层AES加密密钥 (十六进制字符串)
 const KEY_HEX_1: &str = "73634235495062495331515373756c734e7253306c673d3d";
 const KEY_HEX_2: &str = "7150714477323633586746674c337538";
 
-// AES-ECB PKCS7 解密
-pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Error>;
+// AES-CBC PKCS7 加密
+// 输入: 明文字节, 密钥(16字节), IV(16字节)
+// 输出: 密文字节 (IV + 密文，Base64编码)
+pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Error>;
+
+// AES-CBC PKCS7 解密
+pub fn aes_cbc_decrypt(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Error>;
 
 // 两层加密请求 (用于step3第三方登录)
-pub fn yun139_encrypted_request(
+// 流程:
+// 1. 使用 KEY_HEX_1 加密请求体 (AES-CBC)
+// 2. 发送加密请求到服务器
+// 3. 接收加密响应
+// 4. 使用 KEY_HEX_1 解密响应得到 hex_inner
+// 5. 使用 KEY_HEX_2 解密 hex_inner 得到最终结果
+pub async fn yun139_encrypted_request(
     url: &str,
     body: Value,
     headers: Map<String, String>,
-    key_hex: &str,
-) -> Result<Vec<u8>, Error>;
+) -> Result<Value, Error>;
 ```
 
 ### 12.4 签名计算
+用于所有 API 请求的签名验证。
+
 ```rust
 // 计算请求签名
-// 1. URL编码body
-// 2. 按字母排序
-// 3. Base64编码
-// 4. MD5(body) + MD5(ts:randStr) 后转大写
+// 步骤:
+// 1. JSON body URL 编码
+// 2. 按字符字母排序
+// 3. Base64 编码
+// 4. MD5(body_base64) + MD5("ts:randStr") 后转大写
 pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String;
+
+// 示例:
+// body = {"a":1,"b":2}
+// 1. encodeURIComponent -> %7B%22a%22%3A1%2C%22b%22%3A2%7D
+// 2. 排序后 -> %22a%221%2C%22b%222%7B%7D
+// 3. base64 -> IjFhIjEsIiJiIjJ9e30=
+// 4. md5("IjFhIjEsIiJiIjJ9e30=") + md5("2024-01-01 12:00:00:abc123")
+// 5. 转大写 -> 最终签名
 ```
 
 ### 12.5 PKCS7 填充
 ```rust
 pub fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8>;
 pub fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>, Error>;
+```
+
+### 12.6 动态主机获取
+`{PersonalCloudHost}` 需要通过查询路由策略 API 动态获取：
+
+```rust
+// 查询路由策略
+// POST https://user-njs.yun.139.com/user/route/qryRoutePolicy
+// 请求体:
+#[derive(Serialize)]
+pub struct RoutePolicyRequest {
+    pub user_info: UserInfo,
+    pub mod_addr_type: i32,
+}
+
+#[derive(Serialize)]
+pub struct UserInfo {
+    pub user_type: i32,
+    pub account_type: i32,
+    pub account_name: String,
+}
+
+// 响应中查找 modName == "personal" 的项，其 httpsUrl 即为 PersonalCloudHost
+pub async fn get_personal_cloud_host(config: &Config) -> Result<String, Error>;
+```
+
+## 13. 登录流程详解
+
+### 13.1 邮箱 Cookies 格式要求
+从 mail.139.com 登录后获取的 Cookies，必须包含以下关键字段：
+
+```
+RMKEY=xxx; 其他cookie...
+```
+
+**获取方式：**
+1. 浏览器登录 mail.139.com
+2. 打开开发者工具 -> Network
+3. 复制 Cookies 中的 `RMKEY` 字段值
+
+**使用方式：**
+```bash
+# -c 参数传入完整的 cookie 字符串
+139yun login -u 13800138000 -p password123 -c "RMKEY=xxxxx; sid=xxxxx; ..."
+```
+
+### 13.2 三步登录流程
+
+```
+Step 1: POST https://mail.10086.cn/Login/Login.ashx
+        - 参数: UserName=手机号, Password=SHA1("fetion.com.cn:密码"), auto=on
+        - Header: Cookie=邮箱cookies
+        - 返回: Location (包含 sid 和 cguid)
+
+Step 2: GET https://smsrebuild1.mail.10086.cn/setting/s?func=umc:getArtifact&sid=xxx
+        - Header: Cookie=RMKEY值
+        - 返回: {"var": {"artifact": "dycpwd"}}
+
+Step 3: POST https://user-njs.yun.139.com/user/thirdlogin (加密请求)
+        - 请求体: {msisdn, dycpwd, clienttype: "886", cpid: "507", ...}
+        - 使用双层 AES 加密
+        - 返回: {authToken, account, userDomainId}
+```
+
+### 13.3 授权令牌格式
+```
+Base64(pc:{account}:{authToken})
+```
+解码后格式: `pc:手机号:authToken|时间戳|...|过期时间`
+
+### 13.4 令牌刷新机制
+
+```rust
+// 令牌刷新触发条件
+// 授权令牌格式: pc:手机号:authToken|时间戳|...|过期时间(毫秒)
+// 当 过期时间 - 当前时间 < 15天 时触发刷新
+
+// 刷新流程:
+// 1. 解析授权令牌，提取 authToken 和过期时间
+// 2. 计算剩余有效期
+// 3. 如果剩余有效期 <= 15天，调用刷新 API
+
+// 刷新 API: POST https://aas.caiyun.feixin.10086.cn/tellin/authTokenRefresh.do
+// 请求体 (XML):
+// <root>
+//   <token>{authToken}</token>
+//   <account>{手机号}</account>
+//   <clienttype>656</clienttype>
+// </root>
+
+// 刷新失败处理: 如果刷新失败，尝试使用用户名密码重新登录
+
+// 自动刷新: 建议在每次 API 请求前检查令牌有效期，或使用定时任务（如每12小时）刷新
+```
+
+### 13.5 分片上传逻辑
+
+```rust
+// 分片大小计算
+fn get_part_size(file_size: i64, custom_size: i64) -> i64 {
+    // 如果用户设置了自定义分片大小，使用自定义值
+    if custom_size > 0 {
+        return custom_size;
+    }
+    // 否则使用默认值
+    // 文件 > 30GB -> 512MB
+    // 其他 -> 100MB
+    if file_size > 30 * 1024 * 1024 * 1024 {
+        return 512 * 1024 * 1024;
+    }
+    return 100 * 1024 * 1024;
+}
+
+// 分片上传流程:
+// 1. 计算文件 SHA256 哈希
+// 2. 调用 /file/create 创建上传任务
+//    - 请求体包含: contentHash, contentHashAlgorithm, size, parentFileId, name
+//    - 返回: fileId, uploadId, partInfos (前100个分片地址), exist, rapidUpload
+// 3. 检查响应:
+//    - exist=true: 文件已存在，无需上传
+//    - rapidUpload=true: 云端已存在相同文件，支持秒传
+//    - partInfos!=nil: 需要分片上传
+// 4. 分片上传:
+//    - 每次最多上传100个分片
+//    - 上传完成后调用 /file/getUploadUrl 获取下一批分片地址
+// 5. 调用 /file/complete 完成上传
+
+// 秒传 (Rapid Upload):
+// - 上传前先计算文件 SHA256
+// - 服务器检查 contentHash 是否已存在
+// - 如果存在则直接返回成功，无需实际传输文件
+
+// 冲突处理:
+// - 如果目标目录存在同名文件，服务器会自动重命名
+// - 可通过 fileRenameMode 参数控制: auto_rename, force_rename
 ```
 
 ## 13. HTTP 请求封装
