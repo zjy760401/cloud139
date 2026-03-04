@@ -139,7 +139,7 @@ impl Client {
         body: serde_json::Value,
     ) -> Result<T, ClientError> {
         let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        let rand_str = generate_rand_str(6);
+        let rand_str = generate_rand_str(16);
         let body_str = body.to_string();
         let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
 

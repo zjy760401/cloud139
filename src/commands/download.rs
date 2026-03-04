@@ -1,6 +1,6 @@
 use clap::Parser;
 use std::path::Path;
-use crate::client::{Client, ClientError, StorageType};
+use crate::client::{ClientError, StorageType};
 use crate::models::DownloadUrlResp;
 
 #[derive(Parser, Debug)]
@@ -33,19 +33,17 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
 
 async fn download_personal(
     config: &crate::config::Config,
-    remote_path: &str,
+    file_id: &str,
     local_path: &str,
 ) -> Result<(), ClientError> {
     let host = crate::client::api::get_personal_cloud_host(config).await?;
     let url = format!("{}/file/getDownloadUrl", host);
 
-    let client = Client::new(config.clone());
-
     let body = serde_json::json!({
-        "fileId": remote_path,
+        "fileId": file_id,
     });
 
-    let resp: DownloadUrlResp = client.api_request_post(&url, body).await?;
+    let resp: DownloadUrlResp = crate::client::api::personal_api_request(config, &url, body).await?;
 
     if !resp.base.success {
         println!("获取下载链接失败: {}", resp.base.message);
@@ -55,16 +53,16 @@ async fn download_personal(
     let download_url = resp.data.cdn_url.unwrap_or(resp.data.url);
     println!("下载链接: {}", download_url);
 
-    let local_path = Path::new(local_path);
-    if local_path.is_dir() {
-        let file_name = Path::new(remote_path)
+    let local_path_obj = Path::new(local_path);
+    if local_path_obj.is_dir() {
+        let file_name = Path::new(file_id)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("download");
-        let file_path = local_path.join(file_name);
+        let file_path = local_path_obj.join(file_name);
         download_file(&download_url, &file_path).await?;
     } else {
-        download_file(&download_url, local_path).await?;
+        download_file(&download_url, local_path_obj).await?;
     }
 
     Ok(())

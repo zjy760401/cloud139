@@ -40,8 +40,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 "parentFileId": parent_file_id
             });
 
-            let client = Client::new(config);
-            let resp: PersonalListResp = client.api_request_post(&url, body).await?;
+            let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body).await?;
 
             if !resp.base.success {
                 println!("获取文件列表失败: {}", resp.base.message);

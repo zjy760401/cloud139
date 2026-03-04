@@ -36,12 +36,11 @@ async fn mv_personal(config: &crate::config::Config, source: &str, target: &str)
 
     let body = serde_json::json!({
         "fileIds": [source],
-        "targetFileId": target,
+        "toParentFileId": target,
         "fileRenameMode": "auto_rename"
     });
 
-    let client = Client::new(config.clone());
-    let resp: BatchMoveResp = client.api_request_post(&url, body).await?;
+    let resp: BatchMoveResp = crate::client::api::personal_api_request(config, &url, body).await?;
 
     if resp.base.success {
         println!("移动成功");

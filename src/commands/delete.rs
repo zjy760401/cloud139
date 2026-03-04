@@ -41,12 +41,10 @@ async fn delete_personal(config: &crate::config::Config, file_id: &str) -> Resul
     let url = format!("{}/recyclebin/batchTrash", host);
 
     let body = serde_json::json!({
-        "fileIds": [file_id],
-        "operation": "add"
+        "fileIds": [file_id]
     });
 
-    let client = Client::new(config.clone());
-    let resp: BatchTrashResp = client.api_request_post(&url, body).await?;
+    let resp: BatchTrashResp = crate::client::api::personal_api_request(config, &url, body).await?;
 
     if resp.base.success {
         println!("文件已移动到回收站");
@@ -61,8 +59,10 @@ async fn delete_family(config: &crate::config::Config, content_id: &str) -> Resu
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
 
     let body = serde_json::json!({
-        " oprType": 3,
-        "contentIDList": [content_id],
+        "taskType": 2,
+        "contentList": [content_id],
+        "sourceCloudID": config.cloud_id,
+        "sourceCatalogType": 1002,
     });
 
     let client = Client::new(config.clone());

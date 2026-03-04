@@ -156,3 +156,49 @@ fn generate_rand_str(len: usize) -> String {
         CHARSET[idx] as char
     }).collect()
 }
+
+pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
+    config: &Config,
+    url: &str,
+    body: serde_json::Value,
+) -> Result<T, ClientError> {
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let rand_str = generate_rand_str(16);
+    let body_str = body.to_string();
+    let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
+
+    let client = reqwest::Client::new();
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+    headers.insert("Authorization", format!("Basic {}", config.authorization).parse().unwrap());
+    headers.insert("Caller", "web".parse().unwrap());
+    headers.insert("Cms-Device", "default".parse().unwrap());
+    headers.insert("Mcloud-Channel", "1000101".parse().unwrap());
+    headers.insert("Mcloud-Client", "10701".parse().unwrap());
+    headers.insert("Mcloud-Route", "001".parse().unwrap());
+    headers.insert("Mcloud-Sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
+    headers.insert("Mcloud-Version", "7.14.0".parse().unwrap());
+    headers.insert("x-DeviceInfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
+    headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
+    headers.insert("x-inner-ntwk", "2".parse().unwrap());
+    headers.insert("x-m4c-caller", "PC".parse().unwrap());
+    headers.insert("x-m4c-src", "10002".parse().unwrap());
+    headers.insert("x-SvcType", "1".parse().unwrap());
+    headers.insert("X-Yun-Api-Version", "v1".parse().unwrap());
+    headers.insert("X-Yun-App-Channel", "10000034".parse().unwrap());
+    headers.insert("X-Yun-Channel-Source", "10000034".parse().unwrap());
+    headers.insert("X-Yun-Client-Info", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||".parse().unwrap());
+    headers.insert("X-Yun-Module-Type", "100".parse().unwrap());
+    headers.insert("X-Yun-Svc-Type", "1".parse().unwrap());
+
+    let resp = client
+        .post(url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?;
+
+    let result: T = resp.json().await?;
+    Ok(result)
+}

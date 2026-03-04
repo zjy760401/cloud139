@@ -1,6 +1,6 @@
 use clap::Parser;
 use std::path::Path;
-use crate::client::{Client, ClientError, StorageType};
+use crate::client::{ClientError, StorageType};
 use crate::models::{UploadRequest, PersonalUploadResp, PersonalPartInfo};
 
 #[derive(Parser, Debug)]
@@ -75,8 +75,7 @@ async fn upload_personal(
         file_rename_mode: Some("auto_rename".to_string()),
     };
 
-    let client = Client::new(config.clone());
-    let resp: PersonalUploadResp = client.api_request_post(&url, serde_json::to_value(body)?).await?;
+    let resp: PersonalUploadResp = crate::client::api::personal_api_request(config, &url, serde_json::to_value(body)?).await?;
 
     if !resp.base.success {
         println!("创建上传任务失败: {}", resp.base.message);
@@ -97,7 +96,7 @@ async fn upload_personal(
 
     if let Some(part_infos) = data.part_infos {
         println!("开始分片上传...");
-        upload_parts(&host, local_path, &data.upload_id.unwrap(), &data.file_id, &part_infos, file_size).await?;
+        upload_parts(&host, local_path, &data.upload_id.unwrap(), &data.file_id, &part_infos, &content_hash).await?;
     }
 
     println!("上传完成: {}", data.file_name);
@@ -110,10 +109,10 @@ async fn upload_parts(
     upload_id: &str,
     file_id: &str,
     part_infos: &[PersonalPartInfo],
-    _file_size: i64,
+    content_hash: &str,
 ) -> Result<(), ClientError> {
     use std::fs::File;
-    use std::io::{Read, Write};
+    use std::io::Read;
 
     let mut file = File::open(local_path)?;
     let mut buffer = vec![0u8; 10 * 1024 * 1024]; // 10MB buffer
@@ -144,6 +143,8 @@ async fn upload_parts(
     let client = reqwest::Client::new();
 
     let body = serde_json::json!({
+        "contentHash": content_hash,
+        "contentHashAlgorithm": "SHA256",
         "uploadId": upload_id,
         "fileId": file_id,
     });

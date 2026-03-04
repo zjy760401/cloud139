@@ -17,7 +17,7 @@ pub async fn login(
     let step1_result = step1_login(username, password, mail_cookies).await?;
     log::info!("Step 1 completed: got sid={}", step1_result.sid);
 
-    let step2_result = step2_get_artifact(&step1_result.sid).await?;
+    let step2_result = step2_get_artifact(&step1_result.sid, mail_cookies).await?;
     log::info!("Step 2 completed: got dycpwd");
 
     let step3_result = step3_third_login(username, &step2_result.dycpwd).await?;
@@ -122,12 +122,18 @@ async fn step1_login(
     Ok(Step1Result { sid, cguid: extracted_cguid })
 }
 
-async fn step2_get_artifact(sid: &str) -> Result<Step2Result, ClientError> {
+async fn step2_get_artifact(sid: &str, mail_cookies: &str) -> Result<Step2Result, ClientError> {
     let cguid = chrono::Utc::now().timestamp_millis().to_string();
     let url = format!(
         "https://smsrebuild1.mail.10086.cn/setting/s?func=umc:getArtifact&sid={}&cguid={}",
         sid, cguid
     );
+
+    // 从 mail_cookies 中提取 RMKEY
+    let rmkey = mail_cookies.split(';')
+        .map(|s| s.trim())
+        .find(|s| s.starts_with("RMKEY="))
+        .ok_or_else(|| ClientError::Other("RMKEY not found in mail_cookies".to_string()))?;
 
     let client = reqwest::Client::builder()
         .user_agent("okhttp/4.12.0")
@@ -135,6 +141,7 @@ async fn step2_get_artifact(sid: &str) -> Result<Step2Result, ClientError> {
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert("Host", "smsrebuild1.mail.10086.cn".parse().unwrap());
+    headers.insert("Cookie", rmkey.parse().unwrap());
     headers.insert("Content-Type", "text/xml; charset=utf-8".parse().unwrap());
     headers.insert("Accept-Encoding", "gzip".parse().unwrap());
 

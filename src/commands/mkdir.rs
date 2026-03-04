@@ -46,8 +46,7 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
         "type": "folder"
     });
 
-    let client = Client::new(config.clone());
-    let resp: PersonalUploadResp = client.api_request_post(&url, body).await?;
+    let resp: PersonalUploadResp = crate::client::api::personal_api_request(config, &url, body).await?;
 
     if resp.base.success {
         println!("目录创建成功: {}", resp.data.file_name);
