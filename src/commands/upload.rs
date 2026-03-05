@@ -400,7 +400,7 @@ async fn upload_family(
         .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
 
     println!("开始上传文件到家庭云...");
-    upload_file_to_url(local_path, upload_url, upload_task_id, file_size).await?;
+    upload_file_to_url(local_path, upload_url, upload_task_id, file_size, file_name).await?;
 
     println!("上传完成!");
     Ok(())
@@ -464,7 +464,7 @@ async fn upload_group(
         .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
 
     println!("开始上传文件到群组云...");
-    upload_file_to_url(local_path, upload_url, upload_task_id, file_size).await?;
+    upload_file_to_url(local_path, upload_url, upload_task_id, file_size, file_name).await?;
 
     println!("上传完成!");
     Ok(())
@@ -475,6 +475,7 @@ async fn upload_file_to_url(
     upload_url: &str,
     upload_task_id: &str,
     file_size: i64,
+    file_name: &str,
 ) -> Result<(), ClientError> {
     use std::io::{Seek, Read};
     
@@ -505,7 +506,7 @@ async fn upload_file_to_url(
         let client = reqwest::Client::new();
         
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Content-Type", "text/plain;name=".parse().unwrap());
+        headers.insert("Content-Type", format!("text/plain;name={}", file_name).parse().unwrap());
         headers.insert("contentSize", file_size.to_string().parse().unwrap());
         headers.insert("range", format!("bytes={}-{}", i * part_size, i * part_size + read_size - 1).parse().unwrap());
         headers.insert("uploadtaskID", upload_task_id.parse().unwrap());

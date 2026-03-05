@@ -107,25 +107,82 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     let client = Client::new(config.clone());
     
     let source = &sources[0];
-    let source_path = if source.starts_with('/') {
-        source.clone()
-    } else {
-        format!("/{}", source)
-    };
+    let source = source.trim_start_matches('/');
     
-    let target_path = if target.starts_with('/') {
-        target.to_string()
+    let parent_path = std::path::Path::new(source);
+    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    
+    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
+    
+    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    
+    let list_body = serde_json::json!({
+        "catalogID": catalog_id,
+        "sortType": 1,
+        "pageNumber": 1,
+        "pageSize": 100,
+        "cloudID": config.cloud_id,
+        "cloudType": 1,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
+    
+    let mut is_dir = false;
+    let mut found_id = String::new();
+    let mut found_path = String::new();
+    
+    if let Some(catalog_list) = list_resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
+                is_dir = true;
+                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                break;
+            }
+        }
+    }
+    
+    if !is_dir && found_id.is_empty() {
+        if let Some(content_list) = list_resp.pointer("/data/cloudContentList").and_then(|v| v.as_array()) {
+            for content in content_list {
+                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_path = list_resp.pointer("/data/path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    break;
+                }
+            }
+        }
+    }
+
+    if found_id.is_empty() {
+        println!("错误: 文件不存在");
+        return Ok(());
+    }
+
+    let target = target.trim_start_matches('/');
+    let target_path = if target.is_empty() {
+        "0".to_string()
     } else {
-        format!("/{}", target)
+        format!("root:/{}", target)
+    };
+
+    let full_source_path = if found_path.is_empty() {
+        format!("root:/{}", found_id)
+    } else {
+        format!("{}/{}", found_path.trim_end_matches('/'), found_id)
     };
 
     let body = serde_json::json!({
-        "catalogList": [source_path],
+        "catalogList": if is_dir { vec![full_source_path.clone()] } else { vec![] },
         "accountInfo": {
             "accountName": config.username,
             "accountType": "1"
         },
-        "contentList": [],
+        "contentList": if !is_dir { vec![full_source_path.clone()] } else { vec![] },
         "destCatalogID": target,
         "destGroupID": config.cloud_id,
         "destPath": target_path,
@@ -178,12 +235,14 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
     
     let mut is_dir = false;
     let mut found_id = String::new();
+    let mut found_path = String::new();
     
     if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
                 found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_path = cat.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 break;
             }
         }
@@ -194,6 +253,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
                     found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_path = list_resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     break;
                 }
             }
@@ -214,6 +274,12 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
 
     let move_url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
 
+    let full_source_path = if found_path.is_empty() {
+        format!("root:/{}", found_id)
+    } else {
+        format!("{}/{}", found_path.trim_end_matches('/'), found_id)
+    };
+
     let body = if is_dir {
         serde_json::json!({
             "taskType": 3,
@@ -223,7 +289,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
             "destGroupID": config.cloud_id,
             "destPath": dest_path,
             "contentList": [],
-            "catalogList": [found_id],
+            "catalogList": [full_source_path],
             "commonAccountInfo": {
                 "account": config.username,
                 "accountType": 1
@@ -237,7 +303,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
             "destType": 2,
             "destGroupID": config.cloud_id,
             "destPath": dest_path,
-            "contentList": [found_id],
+            "contentList": [full_source_path],
             "catalogList": [],
             "commonAccountInfo": {
                 "account": config.username,

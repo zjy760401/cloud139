@@ -120,12 +120,14 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
     
     let mut is_dir = false;
     let mut found_id = String::new();
+    let mut found_path = String::new();
     
     if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
                 found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_path = cat.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 break;
             }
         }
@@ -136,6 +138,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
                     found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_path = list_resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     break;
                 }
             }
@@ -147,13 +150,17 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
         return Ok(());
     }
 
-    let source_path = if parent_dir.is_empty() {
+    let full_source_path = if found_path.is_empty() {
         format!("root:/{}", found_id)
     } else {
-        format!("root:/{}/{}", parent_dir, found_id)
+        format!("{}/{}", found_path.trim_end_matches('/'), found_id)
     };
 
-    let dest_catalog_id = if target.is_empty() { "root:".to_string() } else { format!("root:/{}", target) };
+    let dest_catalog_id = if target.is_empty() { 
+        "root:".to_string() 
+    } else { 
+        format!("root:/{}", target) 
+    };
 
     let body = if is_dir {
         serde_json::json!({
@@ -163,7 +170,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
             },
             "destCatalogID": dest_catalog_id,
             "destCloudID": config.cloud_id,
-            "sourceCatalogIDs": [source_path],
+            "sourceCatalogIDs": [full_source_path],
             "sourceCloudID": config.cloud_id,
             "sourceContentIDs": []
         })
@@ -177,7 +184,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
             "destCloudID": config.cloud_id,
             "sourceCatalogIDs": [],
             "sourceCloudID": config.cloud_id,
-            "sourceContentIDs": [source_path]
+            "sourceContentIDs": [full_source_path]
         })
     };
 

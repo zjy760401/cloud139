@@ -84,14 +84,14 @@ async fn delete_personal(config: &crate::config::Config, path: &str, permanent: 
 }
 
 async fn delete_family(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
-    let file_id = crate::client::api::get_file_id_by_path(config, path).await?;
+    let (catalog_list, content_list, _) = get_family_file_info(config, path).await?;
     
     let task_type = if permanent { 3 } else { 2 };
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
 
     let body = serde_json::json!({
-        "catalogList": [file_id],
-        "contentList": [],
+        "catalogList": catalog_list,
+        "contentList": content_list,
         "commonAccountInfo": {
             "account": config.username,
             "accountType": 1
@@ -99,7 +99,7 @@ async fn delete_family(config: &crate::config::Config, path: &str, permanent: bo
         "sourceCloudID": config.cloud_id,
         "sourceCatalogType": 1002,
         "taskType": task_type,
-        "path": path
+        "path": format!("root:/{}", path.trim_start_matches('/'))
     });
 
     let client = Client::new(config.clone());
@@ -116,6 +116,60 @@ async fn delete_family(config: &crate::config::Config, path: &str, permanent: bo
     }
 
     Ok(())
+}
+
+async fn get_family_file_info(config: &crate::config::Config, path: &str) -> Result<(Vec<String>, Vec<String>, bool), ClientError> {
+    let source = path.trim_start_matches('/');
+    let parent_path = std::path::Path::new(source);
+    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    
+    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
+    
+    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    
+    let list_body = serde_json::json!({
+        "catalogID": catalog_id,
+        "sortType": 1,
+        "pageNumber": 1,
+        "pageSize": 100,
+        "cloudID": config.cloud_id,
+        "cloudType": 1,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let client = Client::new(config.clone());
+    let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
+    
+    let mut is_dir = false;
+    
+    if let Some(catalog_list) = list_resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
+                is_dir = true;
+                break;
+            }
+        }
+    }
+    
+    if !is_dir {
+        if let Some(content_list) = list_resp.pointer("/data/cloudContentList").and_then(|v| v.as_array()) {
+            for content in content_list {
+                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                    break;
+                }
+            }
+        }
+    }
+
+    if is_dir {
+        Ok((vec![format!("root:/{}", path.trim_start_matches('/'))], vec![], true))
+    } else {
+        Ok((vec![], vec![format!("root:/{}", path.trim_start_matches('/'))], false))
+    }
 }
 
 async fn delete_group(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
@@ -146,12 +200,14 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
     
     let mut is_dir = false;
     let mut found_id = String::new();
+    let mut found_path = String::new();
     
     if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
                 found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_path = cat.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 break;
             }
         }
@@ -162,6 +218,7 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
                     found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_path = list_resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     break;
                 }
             }
@@ -176,10 +233,10 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
     let task_type = if permanent { 3 } else { 2 };
     let delete_url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
 
-    let full_path = if parent_dir.is_empty() {
+    let full_path = if found_path.is_empty() {
         format!("root:/{}", found_id)
     } else {
-        format!("root:{}/{}", parent_dir, found_id)
+        format!("{}/{}", found_path.trim_end_matches('/'), found_id)
     };
 
     let body = if is_dir {
