@@ -13,7 +13,7 @@ pub struct UploadArgs {
 }
 
 pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(|e| ClientError::Config(e))?;
+    let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
 
     let local_path = Path::new(&args.local_path);
@@ -81,7 +81,7 @@ async fn upload_personal(
     let part_count = (file_size + part_size - 1) / part_size;
 
     let first_part_infos: Vec<serde_json::Value> = (0..part_count.min(100)).map(|i| {
-        let start = i as i64 * part_size;
+        let start = i * part_size;
         let byte_size = if file_size - start > part_size { part_size } else { file_size - start };
         serde_json::json!({
             "partNumber": (i + 1) as i32,

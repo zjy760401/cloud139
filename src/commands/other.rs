@@ -11,7 +11,7 @@ pub struct OtherArgs {
 }
 
 pub async fn execute(args: OtherArgs) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(|e| ClientError::Config(e))?;
+    let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let _storage_type = config.storage_type();
 
     match args.action.as_str() {

@@ -25,7 +25,7 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
         return Ok(());
     }
 
-    let config = crate::config::Config::load().map_err(|e| ClientError::Config(e))?;
+    let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
 
     match storage_type {

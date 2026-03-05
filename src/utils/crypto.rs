@@ -26,7 +26,7 @@ pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8
     let mut cipher = Aes128Cbc::new(key.into(), iv.into());
     let mut data = plaintext.to_vec();
     let len = data.len();
-    let pad_len = if len % 16 == 0 { 16 } else { 16 - (len % 16) };
+    let pad_len = if len.is_multiple_of(16) { 16 } else { 16 - (len % 16) };
     data.extend(vec![pad_len as u8; pad_len]);
 
     let mut blocks: Vec<GenericArray<u8, typenum::U16>> = Vec::new();
@@ -89,7 +89,7 @@ pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Box<dyn
     let mut cipher = aes::Aes128::new(key.into());
     let block_size = 16;
 
-    if ciphertext.len() % block_size != 0 {
+    if !ciphertext.len().is_multiple_of(block_size) {
         return Err("ciphertext is not a multiple of the block size".into());
     }
 
@@ -97,7 +97,7 @@ pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Box<dyn
     let blocks = result.chunks_mut(block_size);
 
     for block in blocks {
-        let mut arr = GenericArray::<u8, typenum::U16>::from_slice(block).clone();
+        let mut arr = *GenericArray::<u8, typenum::U16>::from_slice(block);
         cipher.decrypt_block_mut(&mut arr);
         block.copy_from_slice(&arr);
     }

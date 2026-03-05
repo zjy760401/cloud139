@@ -28,17 +28,14 @@ pub enum ClientError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum StorageType {
+    #[default]
     PersonalNew,
     Family,
     Group,
 }
 
-impl Default for StorageType {
-    fn default() -> Self {
-        Self::PersonalNew
-    }
-}
 
 impl StorageType {
     pub fn as_str(&self) -> &'static str {

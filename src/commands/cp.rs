@@ -15,7 +15,7 @@ pub struct CpArgs {
 }
 
 pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(|e| ClientError::Config(e))?;
+    let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
 
     match storage_type {
