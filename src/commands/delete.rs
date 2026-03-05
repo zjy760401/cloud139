@@ -86,22 +86,20 @@ async fn delete_personal(config: &crate::config::Config, path: &str, permanent: 
 async fn delete_family(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
     let file_id = crate::client::api::get_file_id_by_path(config, path).await?;
     
-    let url = "https://yun.139.com/orchestration/personalCloud/batchOprTask/v1.0/createBatchOprTask";
+    let task_type = if permanent { 3 } else { 2 };
+    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
 
     let body = serde_json::json!({
-        "createBatchOprTaskReq": {
-            "taskType": 2,
-            "actionType": 201,
-            "taskInfo": {
-                "newCatalogID": "",
-                "contentInfoList": [file_id],
-                "catalogInfoList": []
-            },
-            "commonAccountInfo": {
-                "account": config.username,
-                "accountType": 1
-            }
-        }
+        "catalogList": [file_id],
+        "contentList": [],
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        },
+        "sourceCloudID": config.cloud_id,
+        "sourceCatalogType": 1002,
+        "taskType": task_type,
+        "path": path
     });
 
     let client = Client::new(config.clone());

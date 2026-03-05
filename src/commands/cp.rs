@@ -95,17 +95,15 @@ async fn cp_family(config: &crate::config::Config, source: &str, target: &str) -
 async fn cp_group(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
     let client = Client::new(config.clone());
 
-    let source_path = if source.starts_with('/') {
-        format!("root:/{}", source)
+    let source_file_id = crate::client::api::get_file_id_by_path(config, source).await?;
+    let target_file_id = if target == "/" || target.is_empty() {
+        "0".to_string()
     } else {
-        format!("root:/{}", source)
+        crate::client::api::get_file_id_by_path(config, target).await?
     };
-    
-    let dest_path = if target.starts_with('/') {
-        format!("root:/{}", target)
-    } else {
-        format!("root:/{}", target)
-    };
+
+    let source_path = format!("root:/{}:{}", target, source_file_id);
+    let dest_path = format!("root:/{}:{}", target, target_file_id);
 
     let body = serde_json::json!({
         "commonAccountInfo": {

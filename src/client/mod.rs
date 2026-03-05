@@ -197,6 +197,24 @@ fn generate_rand_str(len: usize) -> String {
     }).collect()
 }
 
+fn sort_json_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut sorted_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            for key in keys {
+                sorted_map.insert(key.clone(), sort_json_value(&map[key]));
+            }
+            serde_json::Value::Object(sorted_map)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(sort_json_value).collect())
+        }
+        _ => value.clone()
+    }
+}
+
 fn parse_size(size_str: &str) -> String {
     if let Ok(size) = size_str.parse::<i64>() {
         format!("{:.2}", size as f64 / 1024.0 / 1024.0 / 1024.0)
@@ -217,7 +235,8 @@ impl Client {
         
         let key1 = hex::decode(KEY_HEX_1).map_err(|e| ClientError::Other(e.to_string()))?;
         
-        let body_str = serde_json::to_string(&body).map_err(|e| ClientError::Other(e.to_string()))?;
+        let sorted_body = sort_json_value(&body);
+        let body_str = serde_json::to_string(&sorted_body).map_err(|e| ClientError::Other(e.to_string()))?;
         
         let iv = vec![0u8; 16];
         let encrypted = crate::utils::crypto::aes_cbc_encrypt(body_str.as_bytes(), &key1, &iv)

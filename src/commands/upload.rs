@@ -365,7 +365,18 @@ async fn upload_family(
         return Err(ClientError::Api(format!("获取上传URL失败: {:?}", resp)));
     }
 
-    println!("家庭云上传URL: {:?}", resp);
+    let upload_url = resp.pointer("/data/uploadResult/redirectionUrl")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ClientError::Api("未找到上传URL".to_string()))?;
+    
+    let upload_task_id = resp.pointer("/data/uploadResult/uploadTaskID")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
+
+    println!("开始上传文件到家庭云...");
+    upload_file_to_url(local_path, upload_url, upload_task_id, file_size).await?;
+
+    println!("上传完成!");
     Ok(())
 }
 
@@ -408,6 +419,73 @@ async fn upload_group(
         return Err(ClientError::Api(format!("获取上传URL失败: {:?}", resp)));
     }
 
-    println!("群组云上传URL: {:?}", resp);
+    let upload_url = resp.pointer("/data/uploadResult/redirectionUrl")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ClientError::Api("未找到上传URL".to_string()))?;
+    
+    let upload_task_id = resp.pointer("/data/uploadResult/uploadTaskID")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
+
+    println!("开始上传文件到群组云...");
+    upload_file_to_url(local_path, upload_url, upload_task_id, file_size).await?;
+
+    println!("上传完成!");
+    Ok(())
+}
+
+async fn upload_file_to_url(
+    local_path: &Path,
+    upload_url: &str,
+    upload_task_id: &str,
+    file_size: i64,
+) -> Result<(), ClientError> {
+    use std::io::{Seek, Read};
+    
+    let part_size = get_part_size(file_size, 0);
+    let part_count = (file_size + part_size - 1) / part_size;
+
+    let mut file = std::fs::File::open(local_path)?;
+    
+    for i in 0..part_count {
+        file.seek(std::io::SeekFrom::Start(i as u64 * part_size as u64))?;
+        
+        let read_size = if (i + 1) * part_size > file_size {
+            file_size - i * part_size
+        } else {
+            part_size
+        };
+
+        let mut buffer = vec![0u8; read_size as usize];
+        let bytes_read = Read::read(&mut file, &mut buffer)?;
+        
+        if bytes_read == 0 {
+            break;
+        }
+
+        let part_number = i + 1;
+        println!("上传分片 {}/{}", part_number, part_count);
+
+        let client = reqwest::Client::new();
+        
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("Content-Type", "text/plain;name=".parse().unwrap());
+        headers.insert("contentSize", file_size.to_string().parse().unwrap());
+        headers.insert("range", format!("bytes={}-{}", i * part_size, i * part_size + read_size - 1).parse().unwrap());
+        headers.insert("uploadtaskID", upload_task_id.parse().unwrap());
+        headers.insert("rangeType", "0".parse().unwrap());
+
+        let resp = client
+            .post(upload_url)
+            .headers(headers)
+            .body(buffer)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp.status())));
+        }
+    }
+
     Ok(())
 }

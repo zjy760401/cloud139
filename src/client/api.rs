@@ -296,7 +296,9 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     headers.insert("x-yun-channel-source", "10000034".parse().unwrap());
     headers.insert("x-yun-client-info", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||".parse().unwrap());
     headers.insert("x-yun-module-type", "100".parse().unwrap());
-    headers.insert("x-yun-svc-type", svctype.parse().unwrap());
+    headers.insert("x-yun-svc-type", "1".parse().unwrap());
+    headers.insert("Origin", "https://yun.139.com".parse().unwrap());
+    headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
 
     let resp = client
         .post(url)

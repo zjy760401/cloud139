@@ -107,16 +107,16 @@ pub struct PersonalFileItem {
     pub size: i64,
     #[serde(rename = "type")]
     pub file_type: String,
+    #[serde(rename = "createdAt", default)]
+    pub created_at: Option<String>,
+    #[serde(rename = "updatedAt", default)]
+    pub updated_at: Option<String>,
     #[serde(rename = "createDate", default)]
     pub create_date: Option<String>,
     #[serde(rename = "updateDate", default)]
     pub update_date: Option<String>,
     #[serde(rename = "lastModified", default)]
     pub last_modified: Option<String>,
-    #[serde(rename = "createdTime", default)]
-    pub created_time: Option<String>,
-    #[serde(rename = "updatedTime", default)]
-    pub updated_time: Option<String>,
     #[serde(rename = "thumbnailUrls", default)]
     pub thumbnail_urls: Option<Vec<PersonalThumbnail>>,
 }

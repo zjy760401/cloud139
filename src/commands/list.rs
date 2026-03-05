@@ -1,6 +1,7 @@
 use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::{PersonalListResp, FamilyListRequest, QueryContentListResp, GroupListRequest, QueryGroupContentListResp};
+use chrono::NaiveDateTime;
 
 #[derive(Parser, Debug)]
 pub struct ListArgs {
@@ -73,7 +74,12 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 for item in &resp.data.items {
                     let file_type = if item.file_type == "folder" { "d" } else { "-" };
                     let size = format_size(item.size);
-                    let time = item.update_date.clone().or(item.last_modified.clone()).unwrap_or_default();
+                    let time = parse_personal_time(
+                        item.updated_at.as_deref()
+                            .or(item.update_date.as_deref())
+                            .or(item.last_modified.as_deref())
+                            .unwrap_or_default()
+                    );
                     println!("{:<1} {:<38} {:>15} {:<20}", file_type, item.name, size, time);
                 }
 
@@ -176,4 +182,20 @@ fn format_size(size: i64) -> String {
     } else {
         format!("{:.2} GB", size as f64 / 1024.0 / 1024.0 / 1024.0)
     }
+}
+
+fn parse_personal_time(time_str: &str) -> String {
+    if time_str.is_empty() {
+        return String::new();
+    }
+    
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(time_str) {
+        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+    }
+    
+    if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%dT%H:%M:%S%.f") {
+        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+    }
+    
+    time_str.to_string()
 }
