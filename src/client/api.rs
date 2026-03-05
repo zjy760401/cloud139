@@ -79,7 +79,7 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
     for (i, part) in parts.iter().enumerate() {
         let is_last = i == parts.len() - 1;
         let parent_id = if current_parent_id.is_empty() {
-            "".to_string()
+            "/".to_string()
         } else {
             current_parent_id.clone()
         };
