@@ -4,6 +4,8 @@ pub mod api;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+const KEY_HEX_1: &str = "73634235495062495331515373756c734e7253306c673d3d";
+
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error("HTTP error: {0}")]
@@ -200,5 +202,113 @@ fn parse_size(size_str: &str) -> String {
         format!("{:.2}", size as f64 / 1024.0 / 1024.0 / 1024.0)
     } else {
         size_str.to_string()
+    }
+}
+
+impl Client {
+    pub async fn and_album_request<T: for<'de> Deserialize<'de>>(
+        &self,
+        pathname: &str,
+        body: serde_json::Value,
+    ) -> Result<T, ClientError> {
+        let url = format!("https://group.yun.139.com/hcy/family/adapter/andAlbum/openApi{}", pathname);
+        
+        let headers = self.build_and_album_headers();
+        
+        let key1 = hex::decode(KEY_HEX_1).map_err(|e| ClientError::Other(e.to_string()))?;
+        
+        let body_str = serde_json::to_string(&body).map_err(|e| ClientError::Other(e.to_string()))?;
+        
+        let iv = vec![0u8; 16];
+        let encrypted = crate::utils::crypto::aes_cbc_encrypt(body_str.as_bytes(), &key1, &iv)
+            .map_err(|e| ClientError::Other(e.to_string()))?;
+        
+        let mut payload = iv.clone();
+        payload.extend(encrypted);
+        
+        let payload_base64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            &payload,
+        );
+
+        let resp = self.http_client
+            .post(&url)
+            .headers(headers)
+            .body(payload_base64)
+            .send()
+            .await?;
+
+        let resp_body = resp.bytes().await?;
+        let resp_str = String::from_utf8_lossy(&resp_body);
+        
+        let decrypted = if resp_str.trim_start().starts_with('{') {
+            resp_body.to_vec()
+        } else {
+            crate::utils::crypto::aes_cbc_decrypt(&resp_body, &key1, &iv)
+                .map_err(|e| ClientError::Other(e.to_string()))?
+        };
+
+        let result: T = serde_json::from_slice(&decrypted)
+            .map_err(|e| ClientError::Other(format!("Failed to parse response: {}", e)))?;
+        
+        Ok(result)
+    }
+
+    pub async fn isbo_post<T: for<'de> Deserialize<'de>>(
+        &self,
+        pathname: &str,
+        body: serde_json::Value,
+    ) -> Result<T, ClientError> {
+        let url = format!("https://group.yun.139.com/hcy/mutual/adapter{}", pathname);
+        
+        let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let rand_str = generate_rand_str(16);
+        let body_str = body.to_string();
+        let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+        headers.insert("Authorization", format!("Basic {}", self.config.authorization).parse().unwrap());
+        headers.insert("Content-Type", "application/json;charset=UTF-8".parse().unwrap());
+        headers.insert("mcloud-channel", "1000101".parse().unwrap());
+        headers.insert("mcloud-client", "10701".parse().unwrap());
+        headers.insert("mcloud-sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
+        headers.insert("mcloud-version", "7.14.0".parse().unwrap());
+        headers.insert("Origin", "https://yun.139.com".parse().unwrap());
+        headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
+        headers.insert("x-DeviceInfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
+        headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
+        headers.insert("x-inner-ntwk", "2".parse().unwrap());
+        headers.insert("x-m4c-caller", "PC".parse().unwrap());
+        headers.insert("x-m4c-src", "10002".parse().unwrap());
+        headers.insert("x-SvcType", "2".parse().unwrap());
+        headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
+
+        let resp = self.http_client
+            .post(&url)
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await?;
+
+        let result: T = resp.json().await?;
+        Ok(result)
+    }
+
+    fn build_and_album_headers(&self) -> reqwest::header::HeaderMap {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("Host", "group.yun.139.com".parse().unwrap());
+        headers.insert("authorization", format!("Basic {}", self.config.authorization).parse().unwrap());
+        headers.insert("x-svctype", "2".parse().unwrap());
+        headers.insert("hcy-cool-flag", "1".parse().unwrap());
+        headers.insert("api-version", "v2".parse().unwrap());
+        headers.insert("x-huawei-channelsrc", "10246600".parse().unwrap());
+        headers.insert("x-sdk-channelsrc", "".parse().unwrap());
+        headers.insert("x-mm-source", "0".parse().unwrap());
+        headers.insert("x-deviceinfo", "1|127.0.0.1|1|12.3.2|Xiaomi|23116PN5BC||02-00-00-00-00-00|android 15|1440x3200|android|zh||||032|0|".parse().unwrap());
+        headers.insert("content-type", "application/json; charset=utf-8".parse().unwrap());
+        headers.insert("user-agent", "okhttp/4.11.0".parse().unwrap());
+        headers.insert("accept-encoding", "gzip".parse().unwrap());
+        headers
     }
 }

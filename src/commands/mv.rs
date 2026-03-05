@@ -104,35 +104,45 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
         return Ok(());
     }
 
+    let client = Client::new(config.clone());
+    
     let source = &sources[0];
-    let source_id = if source.starts_with('/') || source.contains('/') {
-        crate::client::api::get_file_id_by_path(config, source).await?
+    let source_path = if source.starts_with('/') {
+        source.clone()
     } else {
-        source.to_string()
+        format!("/{}", source)
     };
-
-    let target_id = if target.starts_with('/') || target.contains('/') {
-        crate::client::api::get_file_id_by_path(config, target).await?
-    } else {
+    
+    let target_path = if target.starts_with('/') {
         target.to_string()
+    } else {
+        format!("/{}", target)
     };
-
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/contentCatalog/v1.0/moveContentCatalog";
 
     let body = serde_json::json!({
-        "contentID": source_id,
-        "targetCatalogID": target_id,
-        "cloudID": config.cloud_id,
-        "commonAccountInfo": {
-            "account": config.username,
-            "accountType": 1
-        }
+        "catalogList": [source_path],
+        "accountInfo": {
+            "accountName": config.username,
+            "accountType": "1"
+        },
+        "contentList": [],
+        "destCatalogID": target,
+        "destGroupID": config.cloud_id,
+        "destPath": target_path,
+        "destType": 0,
+        "srcGroupID": config.cloud_id,
+        "srcType": 0,
+        "taskType": 3
     });
 
-    let client = Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+    let resp: serde_json::Value = client.isbo_post("/isbo/openApi/createBatchOprTask", body).await?;
 
-    println!("移动响应: {:?}", resp);
+    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        println!("移动成功");
+    } else {
+        println!("移动失败: {:?}", resp);
+    }
+
     Ok(())
 }
 
@@ -143,24 +153,29 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
     }
 
     let source = &sources[0];
-    let source_id = if source.starts_with('/') || source.contains('/') {
-        crate::client::api::get_file_id_by_path(config, source).await?
+    let source_path = if source.starts_with('/') {
+        source.clone()
     } else {
-        source.to_string()
+        format!("/{}", source)
     };
-
-    let target_id = if target.starts_with('/') || target.contains('/') {
-        crate::client::api::get_file_id_by_path(config, target).await?
-    } else {
+    
+    let target_path = if target.starts_with('/') {
         target.to_string()
+    } else {
+        format!("/{}", target)
     };
 
-    let url = "https://yun.139.com/orchestration/group-rebuild/contentCatalog/v1.0/moveGroupContent";
+    let url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
 
     let body = serde_json::json!({
-        "contentID": source_id,
-        "targetCatalogID": target_id,
-        "cloudID": config.cloud_id,
+        "taskType": 3,
+        "srcType": 2,
+        "srcGroupID": config.cloud_id,
+        "destType": 2,
+        "destGroupID": config.cloud_id,
+        "destPath": target_path,
+        "contentList": [source_path],
+        "catalogList": [],
         "commonAccountInfo": {
             "account": config.username,
             "accountType": 1

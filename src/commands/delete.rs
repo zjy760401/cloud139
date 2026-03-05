@@ -33,7 +33,7 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
             delete_personal(&config, &args.path, args.permanent).await?;
         }
         StorageType::Family => {
-            delete_family(&config, &args.path).await?;
+            delete_family(&config, &args.path, args.permanent).await?;
         }
         StorageType::Group => {
             delete_group(&config, &args.path, args.permanent).await?;
@@ -83,27 +83,40 @@ async fn delete_personal(config: &crate::config::Config, path: &str, permanent: 
     Ok(())
 }
 
-async fn delete_family(config: &crate::config::Config, content_id: &str) -> Result<(), ClientError> {
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
+async fn delete_family(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
+    let file_id = crate::client::api::get_file_id_by_path(config, path).await?;
+    
+    let url = "https://yun.139.com/orchestration/personalCloud/batchOprTask/v1.0/createBatchOprTask";
 
     let body = serde_json::json!({
-        "taskType": 2,
-        "contentList": [{
-            "contentID": content_id,
-            "path": ""
-        }],
-        "sourceCloudID": config.cloud_id,
-        "sourceCatalogType": 1002,
-        "commonAccountInfo": {
-            "account": config.username,
-            "accountType": 1
+        "createBatchOprTaskReq": {
+            "taskType": 2,
+            "actionType": 201,
+            "taskInfo": {
+                "newCatalogID": "",
+                "contentInfoList": [file_id],
+                "catalogInfoList": []
+            },
+            "commonAccountInfo": {
+                "account": config.username,
+                "accountType": 1
+            }
         }
     });
 
     let client = Client::new(config.clone());
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-    println!("删除响应: {:?}", resp);
+    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        if permanent {
+            println!("文件已永久删除");
+        } else {
+            println!("文件已移动到回收站");
+        }
+    } else {
+        println!("删除失败: {:?}", resp);
+    }
+
     Ok(())
 }
 
@@ -113,23 +126,16 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
         return Ok(());
     }
 
-    let catalog_id = if path.starts_with('/') || path.contains('/') {
-        crate::client::api::get_file_id_by_path(config, path).await?
-    } else {
-        path.to_string()
-    };
-
     let task_type = if permanent { 3 } else { 2 };
-    let url = "https://yun.139.com/orchestration/group-rebuild/batchOprTask/v1.0/createBatchOprTask";
+    let url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
+
+    let content_path = format!("root:/{}", path);
 
     let body = serde_json::json!({
         "taskType": task_type,
-        "contentList": [{
-            "contentID": catalog_id,
-            "path": ""
-        }],
-        "sourceCloudID": config.cloud_id,
-        "sourceCatalogType": 1003,
+        "srcGroupID": config.cloud_id,
+        "contentList": [content_path],
+        "catalogList": [],
         "commonAccountInfo": {
             "account": config.username,
             "accountType": 1

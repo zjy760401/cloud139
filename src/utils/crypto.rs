@@ -209,3 +209,15 @@ pub fn calc_file_sha256(path: &str) -> Result<String, std::io::Error> {
 
     Ok(hex::encode(hasher.finalize()))
 }
+
+pub fn generate_random_string(len: usize) -> String {
+    use rand::Rng;
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut rng = rand::thread_rng();
+    (0..len)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}

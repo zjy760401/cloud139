@@ -43,15 +43,15 @@ async fn rename_personal(config: &crate::config::Config, source: &str, new_name:
 
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
-    let url = format!("{}/file/batchRename", host);
+    let url = format!("{}/file/update", host);
 
     let body = serde_json::json!({
-        "fileIds": [file_id],
-        "newName": new_name,
-        "fileRenameMode": "force_rename"
+        "fileId": file_id,
+        "name": new_name,
+        "description": ""
     });
 
-    let resp: crate::models::BatchRenameResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
+    let resp: crate::models::PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
         println!("重命名成功: {}", new_name);
@@ -63,26 +63,21 @@ async fn rename_personal(config: &crate::config::Config, source: &str, new_name:
 }
 
 async fn rename_family(config: &crate::config::Config, source: &str, new_name: &str) -> Result<(), ClientError> {
-    let content_id = if source.starts_with('/') || source.contains('/') {
-        crate::client::api::get_file_id_by_path(config, source).await?
-    } else {
-        source.to_string()
-    };
-
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/contentCatalog/v1.0/renameContentCatalog";
-
+    let client = Client::new(config.clone());
+    
     let body = serde_json::json!({
-        "contentID": content_id,
-        "newName": new_name,
+        "catalogType": 3,
         "cloudID": config.cloud_id,
         "commonAccountInfo": {
             "account": config.username,
-            "accountType": 1
-        }
+            "accountType": "1"
+        },
+        "docLibName": new_name,
+        "docLibraryID": source,
+        "path": format!("root:/{}", source)
     });
 
-    let client = Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+    let resp: serde_json::Value = client.and_album_request("/modifyCloudDocV2", body).await?;
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
         println!("重命名成功: {}", new_name);
@@ -94,17 +89,13 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
 }
 
 async fn rename_group(config: &crate::config::Config, source: &str, new_name: &str) -> Result<(), ClientError> {
-    let catalog_id = if source.starts_with('/') || source.contains('/') {
-        crate::client::api::get_file_id_by_path(config, source).await?
-    } else {
-        source.to_string()
-    };
-
-    let url = "https://yun.139.com/orchestration/group-rebuild/contentCatalog/v1.0/renameGroupCatalog";
+    let url = "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/modifyGroupCatalog";
 
     let body = serde_json::json!({
-        "catalogID": catalog_id,
-        "newName": new_name,
+        "groupID": config.cloud_id,
+        "modifyCatalogID": source,
+        "modifyCatalogName": new_name,
+        "path": format!("root:/{}", source),
         "commonAccountInfo": {
             "account": config.username,
             "accountType": 1

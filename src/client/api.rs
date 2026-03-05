@@ -308,3 +308,24 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     let result: T = resp.json().await?;
     Ok(result)
 }
+
+pub async fn list_personal_files(config: &Config, parent_file_id: &str) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+    let mut config = config.clone();
+    let host = get_personal_cloud_host(&mut config).await?;
+    let url = format!("{}/file/list", host);
+
+    let body = serde_json::json!({
+        "imageThumbnailStyleList": ["Small", "Large"],
+        "orderBy": "updated_at",
+        "orderDirection": "DESC",
+        "pageInfo": {
+            "pageCursor": "",
+            "pageSize": 100
+        },
+        "parentFileId": parent_file_id
+    });
+
+    let resp: crate::models::PersonalListResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+
+    Ok(resp.data.items)
+}
