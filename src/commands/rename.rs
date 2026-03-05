@@ -114,46 +114,30 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
         return Ok(());
     }
 
+    // 家庭云不支持重命名文件夹
     if is_dir {
-        let body = serde_json::json!({
-            "catalogType": 3,
-            "cloudID": config.cloud_id,
-            "commonAccountInfo": {
-                "account": config.account,
-                "accountType": "1"
-            },
-            "docLibName": new_name,
-            "docLibraryID": found_id,
-            "path": format!("root:/{}", found_id)
-        });
+        println!("错误: 家庭云不支持重命名文件夹");
+        return Ok(());
+    }
 
-        let resp: serde_json::Value = client.and_album_request("/modifyCloudDocV2", body).await?;
+    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
+    
+    let body = serde_json::json!({
+        "contentID": found_id,
+        "contentName": new_name,
+        "commonAccountInfo": {
+            "account": config.account,
+            "accountType": 1
+        },
+        "path": found_path
+    });
 
-        if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-            println!("重命名成功: {}", new_name);
-        } else {
-            println!("重命名失败: {:?}", resp);
-        }
+    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+
+    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        println!("重命名成功: {}", new_name);
     } else {
-        let url = "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
-        
-        let body = serde_json::json!({
-            "contentID": found_id,
-            "contentName": new_name,
-            "commonAccountInfo": {
-                "account": config.account,
-                "accountType": 1
-            },
-            "path": found_path
-        });
-
-        let resp: serde_json::Value = client.api_request_post(url, body).await?;
-
-        if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-            println!("重命名成功: {}", new_name);
-        } else {
-            println!("重命名失败: {:?}", resp);
-        }
+        println!("重命名失败: {:?}", resp);
     }
 
     Ok(())

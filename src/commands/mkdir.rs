@@ -114,7 +114,14 @@ async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -
     let parent_path = if parent == "/" || parent.is_empty() {
         "root:".to_string()
     } else {
-        format!("root:/{}", parent.trim_start_matches('/'))
+        let parent = parent.trim_start_matches('/');
+        let parts: Vec<&str> = parent.split('/').collect();
+        if parts.len() == 1 {
+            format!("root:{}", parent)
+        } else {
+            let parent_name = parts[..parts.len()-1].join("/");
+            format!("root:/{}", parent_name)
+        }
     };
 
     let body = serde_json::json!({

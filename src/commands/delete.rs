@@ -227,8 +227,6 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
 
     let full_path = if is_dir {
         found_path.clone()
-    } else if found_path.is_empty() {
-        format!("root:/{}", found_id)
     } else {
         format!("{}/{}", found_path.trim_end_matches('/'), found_id)
     };

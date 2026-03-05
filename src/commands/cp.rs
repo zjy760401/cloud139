@@ -33,7 +33,7 @@ pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn cp_personal(config: &crate::config::Config, source: &str, target: &str, merge: bool) -> Result<(), ClientError> {
+async fn cp_personal(config: &crate::config::Config, source: &str, target: &str, _merge: bool) -> Result<(), ClientError> {
     let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if source_id.is_empty() {
         println!("错误: 无效的源文件路径");
@@ -52,18 +52,13 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
 
     let body = serde_json::json!({
         "fileIds": [source_id],
-        "toParentFileId": target_id,
-        "merge": merge
+        "toParentFileId": target_id
     });
 
     let resp: BatchCopyResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        if merge {
-            println!("合并复制成功");
-        } else {
-            println!("复制成功");
-        }
+        println!("复制成功");
     } else {
         println!("复制失败: {}", resp.base.message);
     }

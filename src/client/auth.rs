@@ -146,7 +146,7 @@ fn check_token_expiration(config: &Config) -> Result<(), ClientError> {
     }
     
     if remaining > 15 * 24 * 60 * 60 * 1000 {
-        return Err(ClientError::Other("Token still valid for more than 15 days".to_string()));
+        return Ok(());
     }
     
     Ok(())

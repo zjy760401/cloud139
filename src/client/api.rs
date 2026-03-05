@@ -88,8 +88,10 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         
         let body = serde_json::json!({
             "parentFileId": parent_id,
-            "pageNum": 1,
-            "pageSize": 100,
+            "pageInfo": {
+                "pageCursor": "",
+                "pageSize": 100
+            },
             "orderBy": "updated_at",
             "orderDirection": "DESC"
         });
