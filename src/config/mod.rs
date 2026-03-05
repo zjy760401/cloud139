@@ -18,15 +18,10 @@ pub enum ConfigError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub authorization: String,
-    pub username: String,
-    #[serde(skip_serializing)]
-    pub password: String,
-    #[serde(skip_serializing)]
-    pub mail_cookies: String,
-    #[serde(default = "default_type")]
+    pub account: String,
+    #[serde(default)]
     pub storage_type: String,
     pub cloud_id: Option<String>,
-    pub user_domain_id: Option<String>,
     #[serde(default)]
     pub custom_upload_part_size: i64,
     #[serde(default = "default_true")]
@@ -41,10 +36,6 @@ pub struct Config {
     pub token_expire_time: Option<i64>,
     #[serde(default)]
     pub root_folder_id: Option<String>,
-}
-
-fn default_type() -> String {
-    "personal_new".to_string()
 }
 
 fn default_true() -> bool {

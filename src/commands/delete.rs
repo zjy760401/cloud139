@@ -85,7 +85,7 @@ async fn delete_family(config: &crate::config::Config, path: &str, permanent: bo
         "catalogList": catalog_list,
         "contentList": content_list,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         },
         "sourceCloudID": config.cloud_id,
@@ -128,7 +128,7 @@ async fn get_family_file_info(config: &crate::config::Config, path: &str) -> Res
         "cloudID": config.cloud_id,
         "cloudType": 1,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         }
     });
@@ -240,7 +240,7 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
             "contentList": [],
             "catalogList": [full_path],
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             }
         })
@@ -251,7 +251,7 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
             "contentList": [full_path],
             "catalogList": [],
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             }
         })

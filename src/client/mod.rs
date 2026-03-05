@@ -82,12 +82,11 @@ impl Client {
     }
 
     pub async fn login(
-        username: String,
-        password: String,
-        mail_cookies: String,
+        token: String,
         storage_type: String,
+        cloud_id: Option<String>,
     ) -> Result<Self, ClientError> {
-        let config = auth::login(&username, &password, &mail_cookies, &storage_type).await?;
+        let config = auth::login(&token, &storage_type, cloud_id.as_deref()).await?;
         config.save()?;
         Ok(Self::new(config))
     }

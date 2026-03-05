@@ -125,7 +125,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
         "cloudID": config.cloud_id,
         "cloudType": 1,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         }
     });
@@ -185,7 +185,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     let body = serde_json::json!({
         "catalogList": if is_dir { vec![full_source_path.clone()] } else { vec![] },
         "accountInfo": {
-            "accountName": config.username,
+            "accountName": config.account,
             "accountType": "1"
         },
         "contentList": if !is_dir { vec![full_source_path.clone()] } else { vec![] },
@@ -297,7 +297,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
             "contentList": [],
             "catalogList": [full_source_path],
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             }
         })
@@ -312,7 +312,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
             "contentList": [full_source_path],
             "catalogList": [],
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             }
         })

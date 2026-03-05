@@ -77,7 +77,7 @@ async fn cp_family(config: &crate::config::Config, source: &str, target: &str) -
     let body = serde_json::json!({
         "commonAccountInfo": {
             "accountType": "1",
-            "accountUserId": config.user_domain_id.as_deref().unwrap_or("")
+            "accountUserId": &config.account
         },
         "destCatalogID": target,
         "destCloudID": config.cloud_id,
@@ -166,7 +166,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
         serde_json::json!({
             "commonAccountInfo": {
                 "accountType": "1",
-                "accountUserId": config.user_domain_id.as_deref().unwrap_or("")
+                "accountUserId": &config.account
             },
             "destCatalogID": dest_catalog_id,
             "destCloudID": config.cloud_id,
@@ -178,7 +178,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
         serde_json::json!({
             "commonAccountInfo": {
                 "accountType": "1",
-                "accountUserId": config.user_domain_id.as_deref().unwrap_or("")
+                "accountUserId": &config.account
             },
             "destCatalogID": dest_catalog_id,
             "destCloudID": config.cloud_id,

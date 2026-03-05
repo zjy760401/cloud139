@@ -88,7 +88,7 @@ async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) 
     let body = serde_json::json!({
         "cloudID": config.cloud_id,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         },
         "docLibName": name,
@@ -122,7 +122,7 @@ async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -
         "parentFileId": parent_file_id,
         "groupID": config.cloud_id,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         },
         "path": parent_path

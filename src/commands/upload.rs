@@ -255,7 +255,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             "uploadId": upload_id,
             "partInfos": part_infos,
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             }
         });
@@ -405,7 +405,7 @@ async fn upload_family(
             "contentSize": report_size
         }],
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         }
     });

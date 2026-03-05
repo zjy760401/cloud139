@@ -141,7 +141,7 @@ async fn download_family(
         "cloudID": config.cloud_id,
         "cloudType": 1,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         }
     });

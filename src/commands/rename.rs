@@ -119,7 +119,7 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
             "catalogType": 3,
             "cloudID": config.cloud_id,
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": "1"
             },
             "docLibName": new_name,
@@ -141,7 +141,7 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
             "contentID": found_id,
             "contentName": new_name,
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             },
             "path": found_path
@@ -223,7 +223,7 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
             "modifyCatalogName": new_name,
             "path": found_path,
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             }
         });
@@ -244,7 +244,7 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
             "contentName": new_name,
             "path": found_path,
             "commonAccountInfo": {
-                "account": config.username,
+                "account": config.account,
                 "accountType": 1
             }
         });

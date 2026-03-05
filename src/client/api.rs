@@ -13,7 +13,7 @@ pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, Clie
         "userInfo": {
             "userType": 1,
             "accountType": 1,
-            "accountName": config.username
+            "accountName": config.account
         },
         "modAddrType": 1
     });
@@ -121,7 +121,7 @@ pub async fn get_personal_disk_info(config: &Config) -> Result<crate::models::Pe
     let url = "https://user-njs.yun.139.com/user/disk/getPersonalDiskInfo";
 
     let body = serde_json::json!({
-        "userDomainId": config.user_domain_id
+        "userDomainId": config.account
     });
 
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -164,7 +164,7 @@ pub async fn get_family_disk_info(config: &Config) -> Result<crate::models::Fami
     let url = "https://user-njs.yun.139.com/user/disk/getFamilyDiskInfo";
 
     let body = serde_json::json!({
-        "userDomainId": config.user_domain_id
+        "userDomainId": config.account
     });
 
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -207,7 +207,7 @@ pub async fn get_group_disk_info(config: &Config) -> Result<crate::models::Group
     let url = "https://user-njs.yun.139.com/user/disk/getGroupDiskInfo";
 
     let body = serde_json::json!({
-        "userDomainId": config.user_domain_id
+        "userDomainId": config.account
     });
 
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -342,7 +342,7 @@ pub async fn get_family_download_link(config: &Config, content_id: &str, path: &
         "cloudID": config.cloud_id,
         "cloudType": 1,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         }
     });
@@ -371,7 +371,7 @@ pub async fn get_group_download_link(config: &Config, content_id: &str, path: &s
         "cloudID": config.cloud_id,
         "cloudType": 1,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         }
     });
@@ -398,7 +398,7 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
         "cloudID": config.cloud_id,
         "cloudType": 1,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         },
         "contentSortType": 0,
@@ -444,7 +444,7 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
     let body = serde_json::json!({
         "groupID": config.cloud_id,
         "commonAccountInfo": {
-            "account": config.username,
+            "account": config.account,
             "accountType": 1
         },
         "pageInfo": {
