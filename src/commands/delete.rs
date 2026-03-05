@@ -233,7 +233,9 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
     let task_type = if permanent { 3 } else { 2 };
     let delete_url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
 
-    let full_path = if found_path.is_empty() {
+    let full_path = if is_dir {
+        found_path.clone()
+    } else if found_path.is_empty() {
         format!("root:/{}", found_id)
     } else {
         format!("{}/{}", found_path.trim_end_matches('/'), found_id)

@@ -478,3 +478,31 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
 
     Err(ClientError::Other("Failed to get group root path".to_string()))
 }
+
+pub async fn get_personal_download_link(config: &Config, file_id: &str) -> Result<String, ClientError> {
+    let mut config = config.clone();
+    let host = get_personal_cloud_host(&mut config).await?;
+    let url = format!("{}/file/getDownloadUrl", host);
+
+    let body = serde_json::json!({
+        "fileId": file_id
+    });
+
+    let resp: serde_json::Value = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+
+    let cdn_url = resp.pointer("/data/cdnUrl")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if !cdn_url.is_empty() {
+        return Ok(cdn_url);
+    }
+
+    let url = resp.pointer("/data/url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(url)
+}

@@ -167,6 +167,7 @@ impl Client {
     fn build_headers(&self, ts: &str, rand_str: &str, sign: &str) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+        headers.insert("Caller", "web".parse().unwrap());
         headers.insert("CMS-DEVICE", "default".parse().unwrap());
         headers.insert("Authorization", format!("Basic {}", self.config.authorization).parse().unwrap());
         headers.insert("mcloud-channel", "1000101".parse().unwrap());
@@ -182,6 +183,12 @@ impl Client {
         headers.insert("x-m4c-caller", "PC".parse().unwrap());
         headers.insert("x-m4c-src", "10002".parse().unwrap());
         headers.insert("x-SvcType", self.config.storage_type().svc_type().parse().unwrap());
+        headers.insert("x-yun-api-version", "v1".parse().unwrap());
+        headers.insert("x-yun-app-channel", "10000034".parse().unwrap());
+        headers.insert("x-yun-channel-source", "10000034".parse().unwrap());
+        headers.insert("x-yun-client-info", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||".parse().unwrap());
+        headers.insert("x-yun-module-type", "100".parse().unwrap());
+        headers.insert("x-yun-svc-type", "1".parse().unwrap());
         headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
         headers
     }

@@ -278,9 +278,21 @@ async fn upload_parts(
         let part_number = i + 1;
         println!("上传分片 {}/{}", part_number, part_count);
 
-        let upload_url = all_upload_urls.get(i as usize).ok_or_else(|| 
-            ClientError::Api(format!("找不到分片 {} 的上传URL", part_number))
-        )?;
+        let upload_url = all_upload_urls.iter()
+            .find(|url| {
+                if let Some(pos) = url.find("partNumber=") {
+                    let num_str = &url[pos + 11..];
+                    let end_pos = num_str.find('&').unwrap_or(num_str.len());
+                    let num = num_str[..end_pos].parse::<i64>().unwrap_or(0);
+                    num == part_number as i64
+                } else {
+                    false
+                }
+            })
+            .cloned()
+            .ok_or_else(|| 
+                ClientError::Api(format!("找不到分片 {} 的上传URL", part_number))
+            )?;
 
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
