@@ -44,6 +44,25 @@ fn default_true() -> bool {
     true
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            authorization: String::new(),
+            account: String::new(),
+            storage_type: String::new(),
+            cloud_id: None,
+            custom_upload_part_size: 0,
+            report_real_size: default_true(),
+            use_large_thumbnail: false,
+            personal_cloud_host: None,
+            refresh_token: None,
+            token_expire_time: None,
+            root_folder_id: None,
+            user_domain_id: None,
+        }
+    }
+}
+
 impl Config {
     pub fn config_path() -> PathBuf {
         PathBuf::from("./config/config.json")

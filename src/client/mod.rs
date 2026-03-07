@@ -154,7 +154,7 @@ impl Client {
     }
 }
 
-fn generate_rand_str(len: usize) -> String {
+pub fn generate_rand_str(len: usize) -> String {
     use rand::Rng;
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let mut rng = rand::thread_rng();
@@ -164,7 +164,7 @@ fn generate_rand_str(len: usize) -> String {
     }).collect()
 }
 
-fn sort_json_value_to_string(value: &serde_json::Value) -> String {
+pub fn sort_json_value_to_string(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
