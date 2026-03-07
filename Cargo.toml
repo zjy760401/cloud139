@@ -40,5 +40,5 @@ serde-xml-rs = "0.8"
 tempfile = "3"
 
 [[bin]]
-name = "139yun"
+name = "cloud139"
 path = "src/main.rs"

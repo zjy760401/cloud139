@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use mobile_cloud_cli::commands::{cp, delete, download, list, login, mkdir, mv, upload, rename};
 
 #[derive(Parser)]
-#[command(name = "139yun")]
+#[command(name = "cloud139")]
 #[command(about = "139 Yun CLI - 移动云盘命令行工具", long_about = None)]
 #[command(version = "0.1.0")]
 struct Cli {
