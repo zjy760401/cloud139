@@ -74,7 +74,7 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
     }
 
     let target_id = if target == "/" || target.is_empty() {
-        "".to_string()
+        "/".to_string()
     } else {
         crate::client::api::get_file_id_by_path(config, target).await?
     };

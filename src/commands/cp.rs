@@ -43,7 +43,7 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     }
 
     let target_id = if target == "/" || target.is_empty() {
-        "".to_string()
+        "/".to_string()
     } else {
         crate::client::api::get_file_id_by_path(config, target).await?
     };
