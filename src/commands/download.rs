@@ -74,6 +74,36 @@ async fn download_personal(
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
+
+    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+    let file_name = parts.last().unwrap_or(&remote_path);
+    let parent_id = if parts.len() > 1 {
+        crate::client::api::get_file_id_by_path(&config, &parts[..parts.len()-1].join("/")).await?
+    } else {
+        "/".to_string()
+    };
+
+    let list_url = format!("{}/file/list", host);
+    let list_body = serde_json::json!({
+        "parentFileId": parent_id,
+        "pageInfo": {
+            "pageCursor": "",
+            "pageSize": 100
+        },
+        "orderBy": "updated_at",
+        "orderDirection": "DESC"
+    });
+    let list_resp: crate::models::PersonalListResp = crate::client::api::personal_api_request(&config, &list_url, list_body, StorageType::PersonalNew).await?;
+
+    if let Some(items) = list_resp.data.map(|d| d.items) {
+        if let Some(item) = items.iter().find(|item| item.name.as_deref() == Some(file_name)) {
+            if item.file_type.as_deref() == Some("1") || item.file_type.as_deref() == Some("folder") || item.file_type.as_deref() == Some("dir") {
+                error!("不支持下载目录，请使用 ls 命令查看目录内容");
+                return Ok(());
+            }
+        }
+    }
+
     let url = format!("{}/file/getDownloadUrl", host);
 
     let body = serde_json::json!({
@@ -211,6 +241,15 @@ async fn download_family(
         }
     };
 
+    if let Some(catalog_list) = resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
+                error!("不支持下载目录，请使用 ls 命令查看目录内容");
+                return Ok(());
+            }
+        }
+    }
+
     let path = found_path.unwrap_or_else(|| parent_path.clone());
 
     let download_url = crate::client::api::get_family_download_link(config, &content_id, &path).await?;
@@ -297,6 +336,15 @@ async fn download_group(
             return Ok(());
         }
     };
+
+    if let Some(catalog_list) = resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
+                error!("不支持下载目录，请使用 ls 命令查看目录内容");
+                return Ok(());
+            }
+        }
+    }
 
     let path = found_path.unwrap_or_else(|| format!("root:/{}", parent_path));
 
