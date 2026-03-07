@@ -25,8 +25,10 @@ cd cloud139
 # 编译
 cargo build --release
 
-# 可执行文件位于 target/release/cloud139.exe
+# 可执行文件位于 target/release/cloud139
 ```
+
+> 也可以从 [GitHub Releases](https://github.com/Cnotech/cloud139/releases) 下载预编译的二进制文件
 
 ### 登录
 
@@ -63,6 +65,12 @@ cloud139 cp /source /destination
 # 重命名
 cloud139 rename /path/oldname newname
 ```
+
+## 全局选项
+
+| 参数 | 简写 | 默认值 | 说明 |
+|------|------|--------|------|
+| --verbose | -v | info | 日志级别 (trace, debug, info, warn, error) |
 
 ## 命令参考
 
@@ -356,6 +364,19 @@ cloud139/
 - [tokio](https://tokio.rs/) - 异步运行时
 - [serde](https://serde.rs/) - 序列化/反序列化
 - [aes-gcm](https://docs.rs/aes-gcm/) - 加密
+- [chrono](https://chrono.rs/) - 日期时间处理
+- [directories](https://docs.rs/directories/) - 目录路径处理
+- [env_logger](https://docs.rs/env_logger/) - 日志输出
+
+## 自动发布
+
+项目使用 GitHub Actions 实现自动发布。每次推送版本标签时，会自动构建并发布以下平台的二进制文件：
+
+- Linux (x86_64)
+- macOS (x86_64, ARM64)
+- Windows (x86_64)
+
+发布包可在 [Releases](https://github.com/Cnotech/cloud139/releases) 页面下载。
 
 ## 许可证
 
