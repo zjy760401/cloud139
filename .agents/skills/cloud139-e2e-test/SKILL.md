@@ -27,7 +27,7 @@ metadata:
 
 ### 2. 环境准备
 
-首先编译项目：
+首先编译项目，确保测试的代码是最新的：
 ```bash
 cargo build --release
 ```
