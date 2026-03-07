@@ -30,18 +30,24 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
     let metadata = std::fs::metadata(local_path)?;
     let file_size = metadata.len() as i64;
 
-    info!("上传文件: {} -> {}/{}", args.local_path, args.remote_path, file_name);
+    let remote_dir = if args.remote_path == "/" {
+        "".to_string()
+    } else {
+        args.remote_path.trim_end_matches('/').to_string()
+    };
+
+    info!("上传文件: {} -> {}/{}", args.local_path, remote_dir, file_name);
     info!("文件大小: {} bytes", file_size);
 
     match storage_type {
         StorageType::PersonalNew => {
-            upload_personal(&config, local_path, &args.remote_path, file_name, file_size).await?;
+            upload_personal(&config, local_path, &remote_dir, file_name, file_size).await?;
         }
         StorageType::Family => {
-            upload_family(&config, local_path, &args.remote_path, file_name, file_size).await?;
+            upload_family(&config, local_path, &remote_dir, file_name, file_size).await?;
         }
         StorageType::Group => {
-            upload_group(&config, local_path, &args.remote_path, file_name, file_size).await?;
+            upload_group(&config, local_path, &remote_dir, file_name, file_size).await?;
         }
     }
 

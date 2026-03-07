@@ -19,7 +19,22 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
 
     let remote_path = &args.remote_path;
     let local_path = match &args.local_path {
-        Some(path) if !path.is_empty() => path.clone(),
+        Some(path) if !path.is_empty() => {
+            let ends_with_slash = path.ends_with('/');
+            let path = path.trim_end_matches('/');
+            let path_obj = Path::new(path);
+            if path_obj.is_dir() || ends_with_slash || (!path.contains('.') && !path.ends_with(".txt") && !path_obj.extension().is_some()) {
+                let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
+                let file_name = parts.first().copied().unwrap_or_else(|| remote_path.as_str());
+                if file_name.is_empty() || file_name == remote_path {
+                    format!("{}/download", path)
+                } else {
+                    format!("{}/{}", path, file_name)
+                }
+            } else {
+                path.to_string()
+            }
+        }
         _ => {
             let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
             let file_name = parts.first().copied().unwrap_or_else(|| remote_path.as_str());
