@@ -21,6 +21,11 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
         return Ok(());
     }
 
+    if args.source.iter().any(|s| s == "/") {
+        error!("错误: 不能移动根目录");
+        return Ok(());
+    }
+
     let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
 
