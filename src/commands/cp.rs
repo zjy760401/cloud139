@@ -1,6 +1,8 @@
 use clap::Parser;
+use log::info;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchCopyResp;
+use crate::{success, error};
 
 #[derive(Parser, Debug)]
 pub struct CpArgs {
@@ -36,7 +38,7 @@ pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
 async fn cp_personal(config: &crate::config::Config, source: &str, target: &str, _merge: bool) -> Result<(), ClientError> {
     let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if source_id.is_empty() {
-        println!("错误: 无效的源文件路径");
+        error!("错误: 无效的源文件路径");
         return Ok(());
     }
 
@@ -58,9 +60,9 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     let resp: BatchCopyResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        println!("复制成功");
+        success!("复制成功");
     } else {
-        println!("复制失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        error!("复制失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())
@@ -83,7 +85,7 @@ async fn cp_family(config: &crate::config::Config, source: &str, target: &str) -
 
     let resp: serde_json::Value = client.and_album_request("/copyContentCatalog", body).await?;
 
-    println!("复制响应: {:?}", resp);
+    info!("复制响应: {:?}", resp);
     Ok(())
 }
 
@@ -141,7 +143,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
     }
 
     if found_id.is_empty() {
-        println!("错误: 文件不存在");
+        error!("错误: 文件不存在");
         return Ok(());
     }
 
@@ -186,9 +188,9 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
     let resp: serde_json::Value = client.and_album_request("/copyContentCatalog", body).await?;
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-        println!("复制成功");
+        success!("复制成功");
     } else {
-        println!("复制失败: {:?}", resp);
+        error!("复制失败: {:?}", resp);
     }
 
     Ok(())

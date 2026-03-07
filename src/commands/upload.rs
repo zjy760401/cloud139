@@ -2,6 +2,7 @@ use clap::Parser;
 use std::path::Path;
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
+use crate::{info, success, warn, step, error};
 
 #[derive(Parser, Debug)]
 pub struct UploadArgs {
@@ -18,7 +19,7 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
 
     let local_path = Path::new(&args.local_path);
     if !local_path.exists() {
-        println!("错误: 文件不存在: {}", args.local_path);
+        error!("文件不存在: {}", args.local_path);
         return Ok(());
     }
 
@@ -29,8 +30,8 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
     let metadata = std::fs::metadata(local_path)?;
     let file_size = metadata.len() as i64;
 
-    println!("上传文件: {} -> {}/{}", args.local_path, args.remote_path, file_name);
-    println!("文件大小: {} bytes", file_size);
+    info!("上传文件: {} -> {}/{}", args.local_path, args.remote_path, file_name);
+    info!("文件大小: {} bytes", file_size);
 
     match storage_type {
         StorageType::PersonalNew => {
@@ -68,7 +69,7 @@ async fn upload_personal(
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);
 
-    println!("计算文件哈希...");
+    info!("计算文件哈希...");
     let content_hash = crate::utils::crypto::calc_file_sha256(local_path.to_str().unwrap())?;
 
     let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
@@ -137,19 +138,19 @@ async fn upload_personal(
     let data = resp.data;
 
     if data.exist.unwrap_or(false) {
-        println!("文件已存在: {}", data.file_name.as_deref().unwrap_or(""));
+        warn!("文件已存在: {}", data.file_name.as_deref().unwrap_or(""));
         return Ok(());
     }
 
     if let Some(part_infos_response) = data.part_infos {
         if part_infos_response.is_empty() {
-            println!("服务器未返回分片信息");
+            warn!("服务器未返回分片信息");
             let file_name_val = data.file_name.clone().unwrap_or_else(|| file_name.to_string());
-            println!("上传完成: {}", file_name_val);
+            success!("上传完成: {}", file_name_val);
         } else {
             let file_id_val = data.file_id.clone().unwrap_or_default();
             let file_name_val = data.file_name.clone();
-            println!("开始分片上传...");
+            step!("开始分片上传...");
             upload_parts(UploadPartsParams {
                 config: &config,
                 host: &host,
@@ -162,13 +163,13 @@ async fn upload_personal(
             }).await?;
             
             if file_name_val.as_deref() != Some(&file_name) {
-                println!("检测到文件名冲突: {} != {}", file_name_val.as_deref().unwrap_or(""), file_name);
+                warn!("检测到文件名冲突: {} != {}", file_name_val.as_deref().unwrap_or(""), file_name);
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 
                 let files = crate::client::api::list_personal_files(&config, &parent_file_id).await?;
                 for file in &files {
                     if file.name.as_deref() == Some(&file_name) {
-                        println!("冲突处理: 先重命名旧文件避免冲突");
+                        step!("冲突处理: 先重命名旧文件避免冲突");
                         let old_name = format!("{}_{}", file_name, crate::utils::crypto::generate_random_string(4));
                         let rename_old_url = format!("{}/file/update", host);
                         let rename_old_body = serde_json::json!({
@@ -177,7 +178,7 @@ async fn upload_personal(
                             "description": ""
                         });
                         let _: PersonalUploadResp = crate::client::api::personal_api_request(&config, &rename_old_url, rename_old_body, StorageType::PersonalNew).await?;
-                        println!("冲突处理: 删除旧文件");
+                        step!("冲突处理: 删除旧文件");
                         let del_url = format!("{}/recyclebin/batchTrash", host);
                         let del_body = serde_json::json!({
                             "fileIds": [file.file_id.as_ref().unwrap_or(&String::new())]
@@ -189,7 +190,7 @@ async fn upload_personal(
                 
                 for file in &files {
                     if file.file_id.as_ref() == Some(&file_id_val) {
-                        println!("冲突处理: 重命名新文件");
+                        step!("冲突处理: 重命名新文件");
                         let rename_url = format!("{}/file/update", host);
                         let rename_body = serde_json::json!({
                             "fileId": file_id_val,
@@ -202,11 +203,11 @@ async fn upload_personal(
                 }
             }
             
-            println!("上传完成: {}", file_name_val.as_deref().unwrap_or(""));
+            success!("上传完成: {}", file_name_val.as_deref().unwrap_or(""));
         }
     } else {
-        println!("服务器未返回分片信息");
-        println!("上传完成: {}", file_name);
+        warn!("服务器未返回分片信息");
+        success!("上传完成: {}", file_name);
     }
 
     Ok(())
@@ -304,7 +305,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
         }
 
         let part_number = (i + 1) as i32;
-        println!("上传分片 {}/{}", part_number, part_count);
+        step!("上传分片 {}/{}", part_number, part_count);
 
         let upload_url = upload_urls.get(&part_number)
             .cloned()
@@ -331,7 +332,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
         }
     }
 
-    println!("\n所有分片上传完成");
+    step!("\n所有分片上传完成");
 
     let complete_url = format!("{}/file/complete", host);
     let client = reqwest::Client::new();
@@ -352,15 +353,15 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
     let status = resp.status();
     let resp_json: serde_json::Value = resp.json().await?;
     
-    if let Some(success) = resp_json.get("base").and_then(|b| b.get("success")).and_then(|s| s.as_bool()) {
-        if success {
-            println!("完成响应: {:?}", status);
+    if let Some(success_flag) = resp_json.get("base").and_then(|b| b.get("success")).and_then(|s| s.as_bool()) {
+        if success_flag {
+            info!("完成响应: {:?}", status);
         } else {
             let message = resp_json.get("base").and_then(|b| b.get("message")).and_then(|m| m.as_str()).unwrap_or("完成上传失败");
             return Err(ClientError::Api(format!("完成上传失败: {}", message)));
         }
     } else {
-        println!("完成响应: {:?}", status);
+        info!("完成响应: {:?}", status);
     }
 
     Ok(())
@@ -429,10 +430,10 @@ async fn upload_family(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
 
-    println!("开始上传文件到家庭云...");
+    info!("开始上传文件到家庭云...");
     upload_file_to_url(local_path, upload_url, upload_task_id, file_size, file_name).await?;
 
-    println!("上传完成!");
+    success!("上传完成!");
     Ok(())
 }
 
@@ -493,10 +494,10 @@ async fn upload_group(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
 
-    println!("开始上传文件到群组云...");
+    info!("开始上传文件到群组云...");
     upload_file_to_url(local_path, upload_url, upload_task_id, file_size, file_name).await?;
 
-    println!("上传完成!");
+    success!("上传完成!");
     Ok(())
 }
 
@@ -531,7 +532,7 @@ async fn upload_file_to_url(
         }
 
         let part_number = i + 1;
-        println!("上传分片 {}/{}", part_number, part_count);
+        step!("上传分片 {}/{}", part_number, part_count);
 
         let client = reqwest::Client::new();
         

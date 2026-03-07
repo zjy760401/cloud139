@@ -2,6 +2,7 @@ use clap::Parser;
 use std::path::Path;
 use crate::client::{ClientError, StorageType};
 use crate::models::DownloadUrlResp;
+use crate::{info, success, error, step};
 
 #[derive(Parser, Debug)]
 pub struct DownloadArgs {
@@ -34,7 +35,7 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
         StorageType::PersonalNew => {
             let file_id = crate::client::api::get_file_id_by_path(&config, remote_path).await?;
             if file_id.is_empty() {
-                println!("错误: 无效的文件路径");
+                error!("无效的文件路径");
                 return Ok(());
             }
             download_personal(&config, &file_id, &local_path).await?;
@@ -74,7 +75,7 @@ async fn download_personal(
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
 
-    println!("下载链接: {}", download_url);
+    info!("下载链接: {}", download_url);
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {
@@ -96,7 +97,7 @@ async fn download_personal(
 }
 
 async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> {
-    println!("开始下载到: {:?}", local_path);
+    step!("开始下载到: {:?}", local_path);
 
     let client = reqwest::Client::new();
     let response = client.get(url).send().await?;
@@ -106,7 +107,7 @@ async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> 
     }
 
     let total_size = response.content_length();
-    println!("文件大小: {} bytes", total_size.unwrap_or(0));
+    info!("文件大小: {} bytes", total_size.unwrap_or(0));
 
     let mut file = std::fs::File::create(local_path)?;
     let mut downloaded: u64 = 0;
@@ -123,7 +124,7 @@ async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> 
         }
     }
 
-    println!("\n下载完成!");
+    success!("下载完成!");
     Ok(())
 }
 
@@ -134,7 +135,7 @@ async fn download_family(
 ) -> Result<(), ClientError> {
     let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
     if parts.is_empty() {
-        println!("错误: 无效的文件路径");
+        error!("无效的文件路径");
         return Ok(());
     }
 
@@ -190,7 +191,7 @@ async fn download_family(
     let content_id = match found_id {
         Some(id) => id,
         None => {
-            println!("错误: 文件不存在");
+            error!("文件不存在");
             return Ok(());
         }
     };
@@ -203,7 +204,7 @@ async fn download_family(
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
 
-    println!("下载链接: {}", download_url);
+    info!("下载链接: {}", download_url);
 
     let local_path_obj = std::path::Path::new(local_path);
     if local_path_obj.is_dir() {
@@ -223,7 +224,7 @@ async fn download_group(
 ) -> Result<(), ClientError> {
     let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
     if parts.is_empty() {
-        println!("错误: 无效的文件路径");
+        error!("无效的文件路径");
         return Ok(());
     }
 
@@ -277,7 +278,7 @@ async fn download_group(
     let content_id = match found_id {
         Some(id) => id,
         None => {
-            println!("错误: 文件不存在");
+            error!("文件不存在");
             return Ok(());
         }
     };
@@ -290,7 +291,7 @@ async fn download_group(
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
 
-    println!("下载链接: {}", download_url);
+    info!("下载链接: {}", download_url);
 
     let local_path_obj = std::path::Path::new(local_path);
     if local_path_obj.is_dir() {

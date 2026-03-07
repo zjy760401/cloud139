@@ -1,5 +1,7 @@
 use clap::Parser;
 use crate::client::ClientError;
+use crate::info;
+use crate::success;
 
 #[derive(Parser, Debug)]
 pub struct LoginArgs {
@@ -14,7 +16,7 @@ pub struct LoginArgs {
 }
 
 pub async fn execute(args: LoginArgs) -> Result<(), ClientError> {
-    println!("正在验证 Token ...");
+    info!("正在验证 Token ...");
 
     let config = crate::client::auth::login(
         &args.token,
@@ -24,9 +26,9 @@ pub async fn execute(args: LoginArgs) -> Result<(), ClientError> {
 
     config.save()?;
 
-    println!("Token 验证成功!");
-    println!("存储类型: {}", args.storage_type);
-    println!("配置文件已保存到: ./config/config.json");
+    success!("Token 验证成功!");
+    info!("存储类型: {}", args.storage_type);
+    success!("配置文件已保存到: ./config/config.json");
 
     Ok(())
 }

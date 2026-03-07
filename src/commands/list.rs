@@ -4,6 +4,7 @@ use crate::models::{PersonalListResp, FamilyListRequest, PageInfo, QueryContentL
 use chrono::NaiveDateTime;
 use serde::Serialize;
 use std::fs;
+use crate::{success, error};
 
 #[derive(Parser, Debug)]
 pub struct ListArgs {
@@ -92,14 +93,14 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body, storage_type).await?;
 
                 if !resp.base.success {
-                    println!("获取文件列表失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+                    error!("获取文件列表失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
                     return Ok(());
                 }
 
                 let data = match resp.data {
                     Some(d) => d,
                     None => {
-                        println!("获取文件列表失败: 无数据");
+                        error!("获取文件列表失败: 无数据");
                         return Ok(());
                     }
                 };
@@ -146,7 +147,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 };
                 let json_str = serde_json::to_string_pretty(&json_output).map_err(|e| ClientError::Other(e.to_string()))?;
                 fs::write(output_path, json_str).map_err(|e| ClientError::Other(e.to_string()))?;
-                println!("已输出目录信息到 {}", output_path);
+                success!("已输出目录信息到 {}", output_path);
             }
         }
         StorageType::Family => {
@@ -173,7 +174,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let resp: QueryContentListResp = client.api_request_post(url, serde_json::to_value(body)?).await?;
 
             if resp.data.result.result_code != "0" {
-                println!("获取文件列表失败: {}", resp.data.result.result_desc.unwrap_or_default());
+                error!("获取文件列表失败: {}", resp.data.result.result_desc.unwrap_or_default());
                 return Ok(());
             }
 
@@ -222,7 +223,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 };
                 let json_str = serde_json::to_string_pretty(&json_output).map_err(|e| ClientError::Other(e.to_string()))?;
                 fs::write(output_path, json_str).map_err(|e| ClientError::Other(e.to_string()))?;
-                println!("已输出目录信息到 {}", output_path);
+                success!("已输出目录信息到 {}", output_path);
             }
         }
         StorageType::Group => {
@@ -258,7 +259,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let resp: QueryGroupContentListResp = client.api_request_post(url, serde_json::to_value(body)?).await?;
 
             if resp.data.result.result_code != "0" {
-                println!("获取文件列表失败: {}", resp.data.result.result_desc.unwrap_or_default());
+                error!("获取文件列表失败: {}", resp.data.result.result_desc.unwrap_or_default());
                 return Ok(());
             }
 
@@ -302,7 +303,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 };
                 let json_str = serde_json::to_string_pretty(&json_output).map_err(|e| ClientError::Other(e.to_string()))?;
                 fs::write(output_path, json_str).map_err(|e| ClientError::Other(e.to_string()))?;
-                println!("已输出目录信息到 {}", output_path);
+                success!("已输出目录信息到 {}", output_path);
             }
         }
     }

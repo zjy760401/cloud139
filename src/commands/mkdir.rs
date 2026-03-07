@@ -1,5 +1,6 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::PersonalUploadResp;
+use crate::{success, error, info};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -87,12 +88,12 @@ async fn mkdir_personal(
             .await?;
 
     if resp.base.success {
-        println!(
+        success!(
             "目录创建成功: {}",
             resp.data.file_name.as_deref().unwrap_or("")
         );
     } else {
-        println!(
+        error!(
             "创建失败: {}",
             resp.base.message.as_deref().unwrap_or("未知错误")
         );
@@ -138,7 +139,7 @@ async fn mkdir_family(
     let client = Client::new(config.clone());
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-    println!("创建目录响应: {:?}", resp);
+    info!("创建目录响应: {:?}", resp);
     Ok(())
 }
 
@@ -188,9 +189,9 @@ async fn mkdir_group(
         .and_then(|c| c.as_str())
         == Some("0")
     {
-        println!("目录创建成功: {}", name);
+        success!("目录创建成功: {}", name);
     } else {
-        println!("创建失败: {:?}", resp);
+        error!("创建失败: {:?}", resp);
     }
 
     Ok(())

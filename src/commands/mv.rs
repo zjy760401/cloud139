@@ -1,6 +1,7 @@
 use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchMoveResp;
+use crate::{success, error, warn};
 
 #[derive(Parser, Debug)]
 pub struct MvArgs {
@@ -13,7 +14,7 @@ pub struct MvArgs {
 
 pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
     if args.source.is_empty() {
-        println!("错误: 请指定至少一个源文件");
+        error!("错误: 请指定至少一个源文件");
         return Ok(());
     }
 
@@ -55,20 +56,20 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
         };
         
         if source_parent_normalized == target_normalized {
-            println!("警告: 源目录和目标目录相同，跳过: {}", source);
+            warn!("源目录和目标目录相同，跳过: {}", source);
             continue;
         }
 
         let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
         if source_id.is_empty() {
-            println!("警告: 无效的源文件路径: {}", source);
+            warn!("无效的源文件路径: {}", source);
             continue;
         }
         source_ids.push(source_id);
     }
 
     if source_ids.is_empty() {
-        println!("错误: 没有有效的源文件需要移动");
+        error!("错误: 没有有效的源文件需要移动");
         return Ok(());
     }
 
@@ -90,9 +91,9 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
     let resp: BatchMoveResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        println!("移动成功");
+        success!("移动成功");
     } else {
-        println!("移动失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        error!("移动失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())
@@ -100,7 +101,7 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
 
 async fn mv_family(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
     if sources.len() > 1 {
-        println!("家庭云暂不支持批量移动");
+        error!("家庭云暂不支持批量移动");
         return Ok(());
     }
 
@@ -159,7 +160,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     }
 
     if found_id.is_empty() {
-        println!("错误: 文件不存在");
+        error!("错误: 文件不存在");
         return Ok(());
     }
 
@@ -201,9 +202,9 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     let resp: serde_json::Value = client.isbo_post("/isbo/openApi/createBatchOprTask", body).await?;
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-        println!("移动成功");
+        success!("移动成功");
     } else {
-        println!("移动失败: {:?}", resp);
+        error!("移动失败: {:?}", resp);
     }
 
     Ok(())
@@ -211,7 +212,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
 
 async fn mv_group(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
     if sources.len() > 1 {
-        println!("群组云暂不支持批量移动");
+        error!("群组云暂不支持批量移动");
         return Ok(());
     }
 
@@ -267,7 +268,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
     }
 
     if found_id.is_empty() {
-        println!("错误: 文件不存在");
+        error!("错误: 文件不存在");
         return Ok(());
     }
 
@@ -321,9 +322,9 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
     let resp: serde_json::Value = client.api_request_post(move_url, body).await?;
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-        println!("移动成功");
+        success!("移动成功");
     } else {
-        println!("移动失败: {:?}", resp);
+        error!("移动失败: {:?}", resp);
     }
 
     Ok(())

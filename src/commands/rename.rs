@@ -1,5 +1,6 @@
 use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
+use crate::{success, error};
 
 #[derive(Parser, Debug)]
 pub struct RenameArgs {
@@ -31,13 +32,13 @@ pub async fn execute(args: RenameArgs) -> Result<(), ClientError> {
 
 async fn rename_personal(config: &crate::config::Config, source: &str, new_name: &str) -> Result<(), ClientError> {
     if source == "/" || source.is_empty() {
-        println!("错误: 不能重命名根目录");
+        error!("错误: 不能重命名根目录");
         return Ok(());
     }
 
     let file_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if file_id.is_empty() {
-        println!("错误: 无效的文件路径");
+        error!("错误: 无效的文件路径");
         return Ok(());
     }
 
@@ -54,9 +55,9 @@ async fn rename_personal(config: &crate::config::Config, source: &str, new_name:
     let resp: crate::models::PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        println!("重命名成功: {}", new_name);
+        success!("重命名成功: {}", new_name);
     } else {
-        println!("重命名失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        error!("重命名失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())
@@ -110,13 +111,13 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
     }
 
     if found_id.is_empty() {
-        println!("错误: 文件不存在");
+        error!("错误: 文件不存在");
         return Ok(());
     }
 
     // 家庭云不支持重命名文件夹
     if is_dir {
-        println!("错误: 家庭云不支持重命名文件夹");
+        error!("错误: 家庭云不支持重命名文件夹");
         return Ok(());
     }
 
@@ -135,9 +136,9 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-        println!("重命名成功: {}", new_name);
+        success!("重命名成功: {}", new_name);
     } else {
-        println!("重命名失败: {:?}", resp);
+        error!("重命名失败: {:?}", resp);
     }
 
     Ok(())
@@ -194,7 +195,7 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
     }
 
     if found_id.is_empty() {
-        println!("错误: 文件不存在");
+        error!("错误: 文件不存在");
         return Ok(());
     }
 
@@ -215,9 +216,9 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
         let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
         if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-            println!("重命名成功: {}", new_name);
+            success!("重命名成功: {}", new_name);
         } else {
-            println!("重命名失败: {:?}", resp);
+            error!("重命名失败: {:?}", resp);
         }
     } else {
         let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/modifyGroupContent";
@@ -236,9 +237,9 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
         let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
         if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
-            println!("重命名成功: {}", new_name);
+            success!("重命名成功: {}", new_name);
         } else {
-            println!("重命名失败: {:?}", resp);
+            error!("重命名失败: {:?}", resp);
         }
     }
 

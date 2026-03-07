@@ -1,6 +1,7 @@
 use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchTrashResp;
+use crate::{info, success, warn, error};
 
 #[derive(Parser, Debug)]
 pub struct DeleteArgs {
@@ -17,11 +18,11 @@ pub struct DeleteArgs {
 pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
     if !args.force {
         if args.permanent {
-            println!("警告: 此操作将永久删除文件，无法恢复！");
+            warn!("此操作将永久删除文件，无法恢复！");
         } else {
-            println!("警告: 此操作会将文件移动到回收站");
+            warn!("此操作会将文件移动到回收站");
         }
-        println!("使用 --force 参数确认删除");
+        info!("使用 --force 参数确认删除");
         return Ok(());
     }
 
@@ -45,13 +46,13 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
 
 async fn delete_personal(config: &crate::config::Config, path: &str, _permanent: bool) -> Result<(), ClientError> {
     if path == "/" || path.is_empty() {
-        println!("错误: 不能删除根目录");
+        error!("不能删除根目录");
         return Ok(());
     }
 
     let file_id = crate::client::api::get_file_id_by_path(config, path).await?;
     if file_id.is_empty() {
-        println!("错误: 无效的文件路径");
+        error!("无效的文件路径");
         return Ok(());
     }
 
@@ -67,9 +68,9 @@ async fn delete_personal(config: &crate::config::Config, path: &str, _permanent:
     let resp: BatchTrashResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        println!("文件已移动到回收站");
+        success!("文件已移动到回收站");
     } else {
-        println!("删除失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        error!("删除失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())
@@ -99,12 +100,12 @@ async fn delete_family(config: &crate::config::Config, path: &str, permanent: bo
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
         if permanent {
-            println!("文件已永久删除");
+            success!("文件已永久删除");
         } else {
-            println!("文件已移动到回收站");
+            success!("文件已移动到回收站");
         }
     } else {
-        println!("删除失败: {:?}", resp);
+        error!("删除失败: {:?}", resp);
     }
 
     Ok(())
@@ -166,7 +167,7 @@ async fn get_family_file_info(config: &crate::config::Config, path: &str) -> Res
 
 async fn delete_group(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
     if path == "/" || path.is_empty() {
-        println!("错误: 不能删除根目录");
+        error!("不能删除根目录");
         return Ok(());
     }
 
@@ -218,7 +219,7 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
     }
 
     if found_id.is_empty() {
-        println!("错误: 文件不存在");
+        error!("文件不存在");
         return Ok(());
     }
 
@@ -259,12 +260,12 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
         if permanent {
-            println!("文件已永久删除");
+            success!("文件已永久删除");
         } else {
-            println!("文件已移动到回收站");
+            success!("文件已移动到回收站");
         }
     } else {
-        println!("删除失败: {:?}", resp);
+        error!("删除失败: {:?}", resp);
     }
 
     Ok(())
