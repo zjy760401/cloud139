@@ -14,6 +14,10 @@ jobs:
     strategy:
       matrix:
         include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: cloud139-windows-x86_64.zip
+            archive: powershell -Command "Compress-Archive -Path $env:SOURCE -DestinationPath $env:DEST"
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: cloud139-linux-x86_64.tar.gz
@@ -26,10 +30,6 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: cloud139-macos-arm64.tar.gz
             archive: tar -czf
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: cloud139-windows-x86_64.zip
-            archive: powershell -Command "Compress-Archive -Path $env:SOURCE -DestinationPath $env:DEST"
 
     steps:
       - uses: actions/checkout@v4
