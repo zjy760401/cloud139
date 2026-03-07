@@ -5,7 +5,7 @@ use crate::success;
 
 #[derive(Parser, Debug)]
 pub struct LoginArgs {
-    #[arg(short, long, required = true, help = "Authorization Token (从alist或手动获取)")]
+    #[arg(short, long, required = true, help = "Authorization Token (从浏览器开发者工具获取)")]
     pub token: String,
 
     #[arg(short, long, default_value = "personal_new", help = "存储类型: personal_new, family, group")]
