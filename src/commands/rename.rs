@@ -11,6 +11,13 @@ pub struct RenameArgs {
     pub target: String,
 }
 
+pub fn validate_rename_path(source: &str) -> Result<(), String> {
+    if source == "/" || source.is_empty() {
+        return Err("不能重命名根目录".to_string());
+    }
+    Ok(())
+}
+
 pub async fn execute(args: RenameArgs) -> Result<(), ClientError> {
     let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
