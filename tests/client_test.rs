@@ -261,3 +261,28 @@ fn test_client_error_from_json() {
     let err: ClientError = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err().into();
     assert!(matches!(err, ClientError::Json(_)));
 }
+
+#[test]
+fn test_client_error_other_new() {
+    let err = ClientError::Other("custom error".to_string());
+    assert_eq!(err.to_string(), "Other error: custom error");
+}
+
+#[test]
+fn test_storage_type_serialize_new() {
+    let st = StorageType::PersonalNew;
+    let json = serde_json::to_string(&st).unwrap();
+    assert!(json.contains("personalnew"));
+}
+
+#[test]
+fn test_storage_type_deserialize_new() {
+    let st: StorageType = serde_json::from_str("\"family\"").unwrap();
+    assert_eq!(st, StorageType::Family);
+}
+
+#[test]
+fn test_storage_type_default_new() {
+    let st = StorageType::default();
+    assert_eq!(st, StorageType::PersonalNew);
+}
