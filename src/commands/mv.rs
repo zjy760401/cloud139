@@ -18,12 +18,12 @@ pub struct MvArgs {
 pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
     if args.source.is_empty() {
         error!("错误: 请指定至少一个源文件");
-        return Ok(());
+        return Err(ClientError::NoSourceFiles);
     }
 
     if args.source.iter().any(|s| s == "/") {
         error!("错误: 不能移动根目录");
-        return Ok(());
+        return Err(ClientError::CannotOperateOnRoot);
     }
 
     let config = crate::config::Config::load().map_err(ClientError::Config)?;
@@ -84,7 +84,7 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
 
     if source_ids.is_empty() {
         error!("错误: 没有有效的源文件需要移动");
-        return Ok(());
+        return Err(ClientError::NoSourceFiles);
     }
 
     let target_id = if target == "/" || target.is_empty() {
@@ -118,7 +118,9 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
     if resp.base.success {
         success!("移动成功");
     } else {
-        error!("移动失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        let msg = resp.base.message.as_deref().unwrap_or("未知错误");
+        error!("移动失败: {}", msg);
+        return Err(ClientError::Api(msg.to_string()));
     }
 
     Ok(())
@@ -127,7 +129,7 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
 async fn mv_family(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
     if sources.len() > 1 {
         error!("家庭云暂不支持批量移动");
-        return Ok(());
+        return Err(ClientError::UnsupportedFamilyBatchMove);
     }
 
     let client = Client::new(config.clone());
@@ -186,7 +188,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
-        return Ok(());
+        return Err(ClientError::FileNotFound);
     }
 
     let target = target.trim_start_matches('/');
@@ -230,6 +232,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
         success!("移动成功");
     } else {
         error!("移动失败: {:?}", resp);
+        return Err(ClientError::Api(format!("{:?}", resp)));
     }
 
     Ok(())
@@ -238,7 +241,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
 async fn mv_group(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
     if sources.len() > 1 {
         error!("群组云暂不支持批量移动");
-        return Ok(());
+        return Err(ClientError::UnsupportedGroupBatchMove);
     }
 
     let source = &sources[0];
@@ -294,7 +297,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
-        return Ok(());
+        return Err(ClientError::FileNotFound);
     }
 
     let target = target.trim_start_matches('/');
@@ -350,6 +353,7 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
         success!("移动成功");
     } else {
         error!("移动失败: {:?}", resp);
+        return Err(ClientError::Api(format!("{:?}", resp)));
     }
 
     Ok(())

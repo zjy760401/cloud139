@@ -81,7 +81,7 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
             let file_id = crate::client::api::get_file_id_by_path(&config, remote_path).await?;
             if file_id.is_empty() {
                 error!("无效的文件路径");
-                return Ok(());
+                return Err(ClientError::InvalidFilePath);
             }
             download_personal(&config, remote_path, &file_id, &local_path).await?;
         }
@@ -129,7 +129,7 @@ async fn download_personal(
         if let Some(item) = items.iter().find(|item| item.name.as_deref() == Some(file_name)) {
             if item.file_type.as_deref() == Some("1") || item.file_type.as_deref() == Some("folder") || item.file_type.as_deref() == Some("dir") {
                 error!("不支持下载目录，请使用 ls 命令查看目录内容");
-                return Ok(());
+                return Err(ClientError::UnsupportedDownloadDirectory);
             }
         }
     }
@@ -211,7 +211,7 @@ async fn download_family(
     let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
     if parts.is_empty() {
         error!("无效的文件路径");
-        return Ok(());
+        return Err(ClientError::InvalidFilePath);
     }
 
     let file_name = parts.last().unwrap();
@@ -267,7 +267,7 @@ async fn download_family(
         Some(id) => id,
         None => {
             error!("文件不存在");
-            return Ok(());
+            return Err(ClientError::FileNotFound);
         }
     };
 
@@ -275,7 +275,7 @@ async fn download_family(
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
                 error!("不支持下载目录，请使用 ls 命令查看目录内容");
-                return Ok(());
+                return Err(ClientError::UnsupportedDownloadDirectory);
             }
         }
     }
@@ -309,7 +309,7 @@ async fn download_group(
     let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
     if parts.is_empty() {
         error!("无效的文件路径");
-        return Ok(());
+        return Err(ClientError::InvalidFilePath);
     }
 
     let file_name = parts.last().unwrap();
@@ -363,7 +363,7 @@ async fn download_group(
         Some(id) => id,
         None => {
             error!("文件不存在");
-            return Ok(());
+            return Err(ClientError::FileNotFound);
         }
     };
 
@@ -371,7 +371,7 @@ async fn download_group(
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
                 error!("不支持下载目录，请使用 ls 命令查看目录内容");
-                return Ok(());
+                return Err(ClientError::UnsupportedDownloadDirectory);
             }
         }
     }

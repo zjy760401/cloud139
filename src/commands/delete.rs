@@ -47,13 +47,13 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
 async fn delete_personal(config: &crate::config::Config, path: &str, _permanent: bool) -> Result<(), ClientError> {
     if path == "/" || path.is_empty() {
         error!("不能删除根目录");
-        return Ok(());
+        return Err(ClientError::CannotOperateOnRoot);
     }
 
     let file_id = crate::client::api::get_file_id_by_path(config, path).await?;
     if file_id.is_empty() {
         error!("无效的文件路径");
-        return Ok(());
+        return Err(ClientError::InvalidFilePath);
     }
 
     let mut config = config.clone();
@@ -70,7 +70,9 @@ async fn delete_personal(config: &crate::config::Config, path: &str, _permanent:
     if resp.base.success {
         success!("文件已移动到回收站");
     } else {
-        error!("删除失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        let msg = resp.base.message.as_deref().unwrap_or("未知错误");
+        error!("删除失败: {}", msg);
+        return Err(ClientError::Api(msg.to_string()));
     }
 
     Ok(())
@@ -106,6 +108,7 @@ async fn delete_family(config: &crate::config::Config, path: &str, permanent: bo
         }
     } else {
         error!("删除失败: {:?}", resp);
+        return Err(ClientError::Api(format!("{:?}", resp)));
     }
 
     Ok(())
@@ -168,7 +171,7 @@ async fn get_family_file_info(config: &crate::config::Config, path: &str) -> Res
 async fn delete_group(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
     if path == "/" || path.is_empty() {
         error!("不能删除根目录");
-        return Ok(());
+        return Err(ClientError::CannotOperateOnRoot);
     }
 
     let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
@@ -220,7 +223,7 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
 
     if found_id.is_empty() {
         error!("文件不存在");
-        return Ok(());
+        return Err(ClientError::FileNotFound);
     }
 
     let task_type = if permanent { 3 } else { 2 };
@@ -266,6 +269,7 @@ async fn delete_group(config: &crate::config::Config, path: &str, permanent: boo
         }
     } else {
         error!("删除失败: {:?}", resp);
+        return Err(ClientError::Api(format!("{:?}", resp)));
     }
 
     Ok(())

@@ -23,7 +23,7 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
     let local_path = Path::new(&args.local_path);
     if !local_path.exists() {
         error!("文件不存在: {}", args.local_path);
-        return Ok(());
+        return Err(ClientError::FileNotFound);
     }
 
     let file_name = local_path.file_name()

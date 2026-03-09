@@ -106,10 +106,9 @@ async fn mkdir_personal(
             resp.data.map(|d| d.file_name.unwrap_or_default()).unwrap_or_default()
         );
     } else {
-        error!(
-            "创建失败: {}",
-            resp.base.message.as_deref().unwrap_or("未知错误")
-        );
+        let msg = resp.base.message.as_deref().unwrap_or("未知错误");
+        error!("创建失败: {}", msg);
+        return Err(ClientError::Api(msg.to_string()));
     }
 
     Ok(())
@@ -205,6 +204,7 @@ async fn mkdir_group(
         success!("目录创建成功: {}", name);
     } else {
         error!("创建失败: {:?}", resp);
+        return Err(ClientError::Api(format!("{:?}", resp)));
     }
 
     Ok(())

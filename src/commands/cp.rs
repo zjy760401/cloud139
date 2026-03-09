@@ -42,7 +42,7 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if source_id.is_empty() {
         error!("错误: 无效的源文件路径");
-        return Ok(());
+        return Err(ClientError::InvalidSourcePath);
     }
 
     let source_path = std::path::Path::new(source);
@@ -79,7 +79,9 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     if resp.base.success {
         success!("复制成功");
     } else {
-        error!("复制失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        let msg = resp.base.message.as_deref().unwrap_or("未知错误");
+        error!("复制失败: {}", msg);
+        return Err(ClientError::Api(msg.to_string()));
     }
 
     Ok(())
@@ -161,7 +163,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
-        return Ok(());
+        return Err(ClientError::FileNotFound);
     }
 
     let full_source_path = if found_path.is_empty() {
@@ -208,6 +210,7 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
         success!("复制成功");
     } else {
         error!("复制失败: {:?}", resp);
+        return Err(ClientError::Api(format!("{:?}", resp)));
     }
 
     Ok(())

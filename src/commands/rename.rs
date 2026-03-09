@@ -40,13 +40,13 @@ pub async fn execute(args: RenameArgs) -> Result<(), ClientError> {
 async fn rename_personal(config: &crate::config::Config, source: &str, new_name: &str) -> Result<(), ClientError> {
     if source == "/" || source.is_empty() {
         error!("错误: 不能重命名根目录");
-        return Ok(());
+        return Err(ClientError::CannotOperateOnRoot);
     }
 
     let file_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if file_id.is_empty() {
         error!("错误: 无效的文件路径");
-        return Ok(());
+        return Err(ClientError::InvalidFilePath);
     }
 
     let mut config = config.clone();
@@ -64,7 +64,9 @@ async fn rename_personal(config: &crate::config::Config, source: &str, new_name:
     if resp.base.success {
         success!("重命名成功: {}", new_name);
     } else {
-        error!("重命名失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        let msg = resp.base.message.as_deref().unwrap_or("未知错误");
+        error!("重命名失败: {}", msg);
+        return Err(ClientError::Api(msg.to_string()));
     }
 
     Ok(())
@@ -119,13 +121,13 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
-        return Ok(());
+        return Err(ClientError::FileNotFound);
     }
 
     // 家庭云不支持重命名文件夹
     if is_dir {
         error!("错误: 家庭云不支持重命名文件夹");
-        return Ok(());
+        return Err(ClientError::UnsupportedFamilyRenameFolder);
     }
 
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
@@ -146,6 +148,7 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
         success!("重命名成功: {}", new_name);
     } else {
         error!("重命名失败: {:?}", resp);
+        return Err(ClientError::Api(format!("{:?}", resp)));
     }
 
     Ok(())
@@ -203,7 +206,7 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
-        return Ok(());
+        return Err(ClientError::FileNotFound);
     }
 
     if is_dir {
@@ -226,6 +229,7 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
             success!("重命名成功: {}", new_name);
         } else {
             error!("重命名失败: {:?}", resp);
+            return Err(ClientError::Api(format!("{:?}", resp)));
         }
     } else {
         let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/modifyGroupContent";
@@ -247,6 +251,7 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
             success!("重命名成功: {}", new_name);
         } else {
             error!("重命名失败: {:?}", resp);
+            return Err(ClientError::Api(format!("{:?}", resp)));
         }
     }
 

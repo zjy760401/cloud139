@@ -94,15 +94,16 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body, storage_type).await?;
 
                 if !resp.base.success {
-                    error!("获取文件列表失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
-                    return Ok(());
+                    let msg = resp.base.message.as_deref().unwrap_or("未知错误");
+                    error!("获取文件列表失败: {}", msg);
+                    return Err(ClientError::Api(msg.to_string()));
                 }
 
                 let data = match resp.data {
                     Some(d) => d,
                     None => {
                         error!("获取文件列表失败: 无数据");
-                        return Ok(());
+                        return Err(ClientError::Api("获取文件列表失败: 无数据".to_string()));
                     }
                 };
 
@@ -176,8 +177,9 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let resp: QueryContentListResp = client.api_request_post(url, serde_json::to_value(body)?).await?;
 
             if resp.data.result.result_code != "0" {
-                error!("获取文件列表失败: {}", resp.data.result.result_desc.unwrap_or_default());
-                return Ok(());
+                let msg = resp.data.result.result_desc.unwrap_or_default();
+                error!("获取文件列表失败: {}", msg);
+                return Err(ClientError::Api(msg));
             }
 
             if catalog_id == "0" && !resp.data.path.is_empty() {
@@ -261,8 +263,9 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let resp: QueryGroupContentListResp = client.api_request_post(url, serde_json::to_value(body)?).await?;
 
             if resp.data.result.result_code != "0" {
-                error!("获取文件列表失败: {}", resp.data.result.result_desc.unwrap_or_default());
-                return Ok(());
+                let msg = resp.data.result.result_desc.unwrap_or_default();
+                error!("获取文件列表失败: {}", msg);
+                return Err(ClientError::Api(msg));
             }
 
             let mut all_items = Vec::new();
