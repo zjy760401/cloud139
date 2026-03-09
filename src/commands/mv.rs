@@ -99,7 +99,7 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
             if exists {
                 warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", file_name);
                 error!("请使用 --force 参数确认继续");
-                return Ok(());
+                return Err(ClientError::ForceRequired);
             }
         }
     }

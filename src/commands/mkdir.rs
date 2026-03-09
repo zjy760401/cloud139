@@ -84,7 +84,7 @@ async fn mkdir_personal(
         if exists {
             warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", name);
             error!("请使用 --force 参数确认继续");
-            return Ok(());
+            return Err(ClientError::ForceRequired);
         }
     }
 

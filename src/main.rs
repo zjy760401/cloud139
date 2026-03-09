@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
-use cloud139::commands::{cp, delete, download, list, login, mkdir, mv, upload, rename};
+use cloud139::client::ClientError;
+use cloud139::commands::{cp, delete, download, list, login, mkdir, mv, rename, upload};
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
@@ -42,17 +43,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Login(args) => login::execute(args).await?,
-        Commands::Ls(args) => list::execute(args).await?,
-        Commands::Upload(args) => upload::execute(args).await?,
-        Commands::Download(args) => download::execute(args).await?,
-        Commands::Rm(args) => delete::execute(args).await?,
-        Commands::Mkdir(args) => mkdir::execute(args).await?,
-        Commands::Mv(args) => mv::execute(args).await?,
-        Commands::Cp(args) => cp::execute(args).await?,
-        Commands::Rename(args) => rename::execute(args).await?,
-    }
+    let result = match cli.command {
+        Commands::Login(args) => login::execute(args).await,
+        Commands::Ls(args) => list::execute(args).await,
+        Commands::Upload(args) => upload::execute(args).await,
+        Commands::Download(args) => download::execute(args).await,
+        Commands::Rm(args) => delete::execute(args).await,
+        Commands::Mkdir(args) => mkdir::execute(args).await,
+        Commands::Mv(args) => mv::execute(args).await,
+        Commands::Cp(args) => cp::execute(args).await,
+        Commands::Rename(args) => rename::execute(args).await,
+    };
 
+    if result.is_err() {
+        std::process::exit(1);
+    }
+    
     Ok(())
 }

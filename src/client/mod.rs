@@ -25,6 +25,8 @@ pub enum ClientError {
     Io(#[from] std::io::Error),
     #[error("Other error: {0}")]
     Other(String),
+    #[error("请使用 --force 参数确认继续")]
+    ForceRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
