@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
-use cloud139::client::ClientError;
 use cloud139::commands::{cp, delete, download, list, login, mkdir, mv, rename, upload};
+use cloud139::error;
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
@@ -55,7 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Rename(args) => rename::execute(args).await,
     };
 
-    if result.is_err() {
+    if let Err(e) = result {
+        error!("{}", e);
         std::process::exit(1);
     }
     
