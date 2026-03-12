@@ -1,6 +1,5 @@
 use cloud139::client::{Client, ClientError, StorageType};
 use cloud139::config::Config;
-use serde_json::Value;
 
 #[test]
 fn test_generate_rand_str() {
@@ -151,10 +150,10 @@ fn test_storage_type_deserialize() {
 fn test_client_error_display() {
     let err = ClientError::NotLoggedIn;
     assert_eq!(err.to_string(), "Not logged in");
-    
+
     let err = ClientError::TokenExpired;
     assert_eq!(err.to_string(), "Token expired");
-    
+
     let err = ClientError::Other("test error".to_string());
     assert_eq!(err.to_string(), "Other error: test error");
 }
@@ -167,7 +166,7 @@ fn test_client_new() {
         storage_type: "personal".to_string(),
         ..Default::default()
     };
-    
+
     let client = Client::new(config.clone());
     assert_eq!(client.config.account, "test_account");
     assert_eq!(client.config.authorization, "test_auth");
@@ -181,7 +180,8 @@ async fn test_client_login_invalid_token() {
 
 #[tokio::test]
 async fn test_client_login_invalid_format() {
-    let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "invalid_format");
+    let token =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "invalid_format");
     let result = Client::login(token, "personal".to_string(), None).await;
     assert!(result.is_err());
 }
@@ -195,7 +195,10 @@ async fn test_client_login_missing_parts() {
 
 #[tokio::test]
 async fn test_client_login_missing_token_parts() {
-    let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "pc:account:token");
+    let token = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        "pc:account:token",
+    );
     let result = Client::login(token, "personal".to_string(), None).await;
     assert!(result.is_err());
 }
@@ -205,10 +208,10 @@ async fn test_client_login_valid() {
     let expire_time = chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000;
     let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
     let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
-    
+
     let result = Client::login(token, "personal".to_string(), None).await;
     assert!(result.is_ok());
-    
+
     let client = result.unwrap();
     assert_eq!(client.config.account, "13800138000");
     assert_eq!(client.config.storage_type, "personal");
@@ -219,10 +222,10 @@ async fn test_client_login_with_cloud_id() {
     let expire_time = chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000;
     let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
     let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
-    
+
     let result = Client::login(token, "family".to_string(), Some("cloud123".to_string())).await;
     assert!(result.is_ok());
-    
+
     let client = result.unwrap();
     assert_eq!(client.config.cloud_id, Some("cloud123".to_string()));
 }
@@ -237,7 +240,7 @@ async fn test_client_refresh_token_invalid_token() {
         token_expire_time: None,
         ..Default::default()
     };
-    
+
     let mut client = Client::new(config);
     let result = client.refresh_token_if_needed().await;
     assert!(result.is_err());
@@ -258,7 +261,9 @@ fn test_client_error_from_config() {
 
 #[test]
 fn test_client_error_from_json() {
-    let err: ClientError = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err().into();
+    let err: ClientError = serde_json::from_str::<serde_json::Value>("invalid")
+        .unwrap_err()
+        .into();
     assert!(matches!(err, ClientError::Json(_)));
 }
 

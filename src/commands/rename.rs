@@ -1,6 +1,6 @@
-use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
-use crate::{success, error};
+use crate::{error, success};
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct RenameArgs {
@@ -37,7 +37,11 @@ pub async fn execute(args: RenameArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn rename_personal(config: &crate::config::Config, source: &str, new_name: &str) -> Result<(), ClientError> {
+async fn rename_personal(
+    config: &crate::config::Config,
+    source: &str,
+    new_name: &str,
+) -> Result<(), ClientError> {
     if source == "/" || source.is_empty() {
         error!("错误: 不能重命名根目录");
         return Err(ClientError::CannotOperateOnRoot);
@@ -59,7 +63,9 @@ async fn rename_personal(config: &crate::config::Config, source: &str, new_name:
         "description": ""
     });
 
-    let resp: crate::models::PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
+    let resp: crate::models::PersonalUploadResp =
+        crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew)
+            .await?;
 
     if resp.base.success {
         success!("重命名成功: {}", new_name);
@@ -72,18 +78,32 @@ async fn rename_personal(config: &crate::config::Config, source: &str, new_name:
     Ok(())
 }
 
-async fn rename_family(config: &crate::config::Config, source: &str, new_name: &str) -> Result<(), ClientError> {
+async fn rename_family(
+    config: &crate::config::Config,
+    source: &str,
+    new_name: &str,
+) -> Result<(), ClientError> {
     let client = Client::new(config.clone());
-    
+
     let source = source.trim_start_matches('/');
     let parent_path = std::path::Path::new(source);
-    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    
-    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
-    
+    let parent_dir = parent_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let file_name = parent_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let catalog_id = if parent_dir.is_empty() {
+        "0".to_string()
+    } else {
+        parent_dir.clone()
+    };
+
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
-    
+
     let list_body = serde_json::json!({
         "catalogID": catalog_id,
         "sortType": 1,
@@ -92,27 +112,45 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
     });
 
     let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
-    
+
     let mut is_dir = false;
     let mut found_id = String::new();
     let mut found_path = String::new();
-    
-    if let Some(catalog_list) = list_resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+
+    if let Some(catalog_list) = list_resp
+        .pointer("/data/cloudCatalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
-                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_id = cat
+                    .get("catalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 break;
             }
         }
     }
-    
+
     if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp.pointer("/data/cloudContentList").and_then(|v| v.as_array()) {
+        if let Some(content_list) = list_resp
+            .pointer("/data/cloudContentList")
+            .and_then(|v| v.as_array())
+        {
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    found_path = list_resp.pointer("/data/path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_id = content
+                        .get("contentID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    found_path = list_resp
+                        .pointer("/data/path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     break;
                 }
             }
@@ -130,8 +168,9 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
         return Err(ClientError::UnsupportedFamilyRenameFolder);
     }
 
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
-    
+    let url =
+        "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
+
     let body = serde_json::json!({
         "contentID": found_id,
         "contentName": new_name,
@@ -144,7 +183,12 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
 
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+    if resp
+        .get("result")
+        .and_then(|r| r.get("resultCode"))
+        .and_then(|c| c.as_str())
+        == Some("0")
+    {
         success!("重命名成功: {}", new_name);
     } else {
         error!("重命名失败: {:?}", resp);
@@ -154,16 +198,30 @@ async fn rename_family(config: &crate::config::Config, source: &str, new_name: &
     Ok(())
 }
 
-async fn rename_group(config: &crate::config::Config, source: &str, new_name: &str) -> Result<(), ClientError> {
+async fn rename_group(
+    config: &crate::config::Config,
+    source: &str,
+    new_name: &str,
+) -> Result<(), ClientError> {
     let source = source.trim_start_matches('/');
     let parent_path = std::path::Path::new(source);
-    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    
-    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
-    
+    let parent_dir = parent_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let file_name = parent_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let catalog_id = if parent_dir.is_empty() {
+        "0".to_string()
+    } else {
+        parent_dir.clone()
+    };
+
     let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
-    
+
     let list_body = serde_json::json!({
         "groupID": config.cloud_id,
         "catalogID": catalog_id,
@@ -176,28 +234,50 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
 
     let client = Client::new(config.clone());
     let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
-    
+
     let mut is_dir = false;
     let mut found_id = String::new();
     let mut found_path = String::new();
-    
-    if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+
+    if let Some(catalog_list) = list_resp
+        .pointer("/data/getGroupContentResult/catalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
-                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                found_path = cat.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_id = cat
+                    .get("catalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = cat
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 break;
             }
         }
     }
-    
+
     if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp.pointer("/data/getGroupContentResult/contentList").and_then(|v| v.as_array()) {
+        if let Some(content_list) = list_resp
+            .pointer("/data/getGroupContentResult/contentList")
+            .and_then(|v| v.as_array())
+        {
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    found_path = list_resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_id = content
+                        .get("contentID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    found_path = list_resp
+                        .pointer("/data/getGroupContentResult/parentCatalogID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     break;
                 }
             }
@@ -225,7 +305,12 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
 
         let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-        if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        if resp
+            .get("result")
+            .and_then(|r| r.get("resultCode"))
+            .and_then(|c| c.as_str())
+            == Some("0")
+        {
             success!("重命名成功: {}", new_name);
         } else {
             error!("重命名失败: {:?}", resp);
@@ -247,7 +332,12 @@ async fn rename_group(config: &crate::config::Config, source: &str, new_name: &s
 
         let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-        if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        if resp
+            .get("result")
+            .and_then(|r| r.get("resultCode"))
+            .and_then(|c| c.as_str())
+            == Some("0")
+        {
             success!("重命名成功: {}", new_name);
         } else {
             error!("重命名失败: {:?}", resp);

@@ -59,6 +59,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         error!("{}", e);
         std::process::exit(1);
     }
-    
+
     Ok(())
 }

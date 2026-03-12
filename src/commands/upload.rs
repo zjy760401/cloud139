@@ -1,8 +1,8 @@
-use clap::Parser;
-use std::path::Path;
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
-use crate::{info, success, warn, step, error};
+use crate::{error, info, step, success, warn};
+use clap::Parser;
+use std::path::Path;
 
 #[derive(Parser, Debug)]
 pub struct UploadArgs {
@@ -26,7 +26,8 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
         return Err(ClientError::FileNotFound);
     }
 
-    let file_name = local_path.file_name()
+    let file_name = local_path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
 
@@ -39,12 +40,23 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
         args.remote_path.trim_end_matches('/').to_string()
     };
 
-    info!("上传文件: {} -> {}/{}", args.local_path, remote_dir, file_name);
+    info!(
+        "上传文件: {} -> {}/{}",
+        args.local_path, remote_dir, file_name
+    );
     info!("文件大小: {} bytes", file_size);
 
     match storage_type {
         StorageType::PersonalNew => {
-            upload_personal(&config, local_path, &remote_dir, file_name, file_size, args.force).await?;
+            upload_personal(
+                &config,
+                local_path,
+                &remote_dir,
+                file_name,
+                file_size,
+                args.force,
+            )
+            .await?;
         }
         StorageType::Family => {
             upload_family(&config, local_path, &remote_dir, file_name, file_size).await?;
@@ -89,7 +101,8 @@ async fn upload_personal(
     };
 
     if !force {
-        let exists = crate::client::api::check_file_exists(&config, &parent_file_id, file_name).await?;
+        let exists =
+            crate::client::api::check_file_exists(&config, &parent_file_id, file_name).await?;
         if exists {
             warn!("云端已存在「{}」，如果继续则云端会自动覆盖", file_name);
             error!("请使用 --force 参数确认继续");
@@ -100,17 +113,23 @@ async fn upload_personal(
     let part_size = get_part_size(file_size, config.custom_upload_part_size);
     let part_count = (file_size + part_size - 1) / part_size;
 
-    let first_part_infos: Vec<serde_json::Value> = (0..part_count.min(100)).map(|i| {
-        let start = i * part_size;
-        let byte_size = if file_size - start > part_size { part_size } else { file_size - start };
-        serde_json::json!({
-            "partNumber": (i + 1) as i32,
-            "partSize": byte_size,
-            "parallelHashCtx": {
-                "partOffset": start
-            }
+    let first_part_infos: Vec<serde_json::Value> = (0..part_count.min(100))
+        .map(|i| {
+            let start = i * part_size;
+            let byte_size = if file_size - start > part_size {
+                part_size
+            } else {
+                file_size - start
+            };
+            serde_json::json!({
+                "partNumber": (i + 1) as i32,
+                "partSize": byte_size,
+                "parallelHashCtx": {
+                    "partOffset": start
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     let content_type = match local_path.extension().and_then(|e| e.to_str()) {
         Some("txt") => "text/plain",
@@ -133,7 +152,8 @@ async fn upload_personal(
         Some("avi") => "video/x-msvideo",
         Some("mov") => "video/quicktime",
         _ => "application/octet-stream",
-    }.to_string();
+    }
+    .to_string();
 
     let body = serde_json::json!({
         "contentHash": content_hash,
@@ -148,10 +168,15 @@ async fn upload_personal(
         "fileRenameMode": "auto_rename"
     });
 
-    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
+    let resp: PersonalUploadResp =
+        crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew)
+            .await?;
 
     if !resp.base.success {
-        return Err(ClientError::Api(format!("创建上传任务失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"))));
+        return Err(ClientError::Api(format!(
+            "创建上传任务失败: {}",
+            resp.base.message.as_deref().unwrap_or("未知错误")
+        )));
     }
 
     let data = match resp.data {
@@ -170,7 +195,10 @@ async fn upload_personal(
     if let Some(part_infos_response) = data.part_infos {
         if part_infos_response.is_empty() {
             warn!("服务器未返回分片信息");
-            let file_name_val = data.file_name.clone().unwrap_or_else(|| file_name.to_string());
+            let file_name_val = data
+                .file_name
+                .clone()
+                .unwrap_or_else(|| file_name.to_string());
             success!("上传完成: {}", file_name_val);
         } else {
             let file_id_val = data.file_id.clone().unwrap_or_default();
@@ -185,34 +213,56 @@ async fn upload_personal(
                 file_size,
                 content_hash: &content_hash,
                 part_size,
-            }).await?;
-            
+            })
+            .await?;
+
             if file_name_val.as_deref() != Some(&file_name) {
-                warn!("检测到文件名冲突: {} != {}", file_name_val.as_deref().unwrap_or(""), file_name);
+                warn!(
+                    "检测到文件名冲突: {} != {}",
+                    file_name_val.as_deref().unwrap_or(""),
+                    file_name
+                );
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                
-                let files = crate::client::api::list_personal_files(&config, &parent_file_id).await?;
+
+                let files =
+                    crate::client::api::list_personal_files(&config, &parent_file_id).await?;
                 for file in &files {
                     if file.name.as_deref() == Some(&file_name) {
                         step!("冲突处理: 先重命名旧文件避免冲突");
-                        let old_name = format!("{}_{}", file_name, crate::utils::crypto::generate_random_string(4));
+                        let old_name = format!(
+                            "{}_{}",
+                            file_name,
+                            crate::utils::crypto::generate_random_string(4)
+                        );
                         let rename_old_url = format!("{}/file/update", host);
                         let rename_old_body = serde_json::json!({
                             "fileId": file.file_id.as_ref().unwrap_or(&String::new()),
                             "name": old_name,
                             "description": ""
                         });
-                        let _: PersonalUploadResp = crate::client::api::personal_api_request(&config, &rename_old_url, rename_old_body, StorageType::PersonalNew).await?;
+                        let _: PersonalUploadResp = crate::client::api::personal_api_request(
+                            &config,
+                            &rename_old_url,
+                            rename_old_body,
+                            StorageType::PersonalNew,
+                        )
+                        .await?;
                         step!("冲突处理: 删除旧文件");
                         let del_url = format!("{}/recyclebin/batchTrash", host);
                         let del_body = serde_json::json!({
                             "fileIds": [file.file_id.as_ref().unwrap_or(&String::new())]
                         });
-                        let _: serde_json::Value = crate::client::api::personal_api_request(&config, &del_url, del_body, StorageType::PersonalNew).await?;
+                        let _: serde_json::Value = crate::client::api::personal_api_request(
+                            &config,
+                            &del_url,
+                            del_body,
+                            StorageType::PersonalNew,
+                        )
+                        .await?;
                         break;
                     }
                 }
-                
+
                 for file in &files {
                     if file.file_id.as_ref() == Some(&file_id_val) {
                         step!("冲突处理: 重命名新文件");
@@ -222,12 +272,18 @@ async fn upload_personal(
                             "name": file_name,
                             "description": ""
                         });
-                        let _: PersonalUploadResp = crate::client::api::personal_api_request(&config, &rename_url, rename_body, StorageType::PersonalNew).await?;
+                        let _: PersonalUploadResp = crate::client::api::personal_api_request(
+                            &config,
+                            &rename_url,
+                            rename_body,
+                            StorageType::PersonalNew,
+                        )
+                        .await?;
                         break;
                     }
                 }
             }
-            
+
             success!("上传完成: {}", file_name_val.as_deref().unwrap_or(""));
         }
     } else {
@@ -258,29 +314,35 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
     let file_size = params.file_size;
     let content_hash = params.content_hash;
     let part_size = params.part_size;
+    use std::collections::HashMap;
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
-    use std::collections::HashMap;
 
     let mut file = File::open(local_path)?;
     let part_count = (file_size + part_size - 1) / part_size;
 
     let mut upload_urls: HashMap<i32, String> = HashMap::new();
-    
+
     for batch_start in (0..part_count as usize).step_by(100) {
         let batch_end = std::cmp::min(batch_start + 100, part_count as usize);
-        
+
         let url = format!("{}/file/getUploadUrl", host);
 
-        let part_infos: Vec<serde_json::Value> = (batch_start..batch_end).map(|i| {
-            let start = i as i64 * part_size;
-            let byte_size = if file_size - start > part_size { part_size } else { file_size - start };
-            serde_json::json!({
-                "partNumber": (i + 1) as i32,
-                "partSize": byte_size
+        let part_infos: Vec<serde_json::Value> = (batch_start..batch_end)
+            .map(|i| {
+                let start = i as i64 * part_size;
+                let byte_size = if file_size - start > part_size {
+                    part_size
+                } else {
+                    file_size - start
+                };
+                serde_json::json!({
+                    "partNumber": (i + 1) as i32,
+                    "partSize": byte_size
+                })
             })
-        }).collect();
-        
+            .collect();
+
         let body = serde_json::json!({
             "fileId": file_id,
             "uploadId": upload_id,
@@ -291,18 +353,19 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             }
         });
 
-        let resp_json: serde_json::Value = crate::client::api::personal_api_request(
-            config,
-            &url,
-            body,
-            StorageType::PersonalNew
-        ).await?;
-        
-        if let Some(part_infos) = resp_json.get("data").and_then(|d| d.get("partInfos")).and_then(|p| p.as_array()) {
+        let resp_json: serde_json::Value =
+            crate::client::api::personal_api_request(config, &url, body, StorageType::PersonalNew)
+                .await?;
+
+        if let Some(part_infos) = resp_json
+            .get("data")
+            .and_then(|d| d.get("partInfos"))
+            .and_then(|p| p.as_array())
+        {
             for info in part_infos {
                 if let (Some(part_num), Some(url)) = (
                     info.get("partNumber").and_then(|n| n.as_i64()),
-                    info.get("uploadUrl").and_then(|u| u.as_str())
+                    info.get("uploadUrl").and_then(|u| u.as_str()),
                 ) {
                     upload_urls.insert(part_num as i32, url.to_string());
                 }
@@ -312,7 +375,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
 
     for i in 0..part_count {
         file.seek(SeekFrom::Start(i as u64 * part_size as u64))?;
-        
+
         let read_size = if (i + 1) * part_size > file_size {
             file_size - i * part_size
         } else {
@@ -321,7 +384,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
 
         let mut buffer = vec![0u8; read_size as usize];
         let bytes_read = file.read(&mut buffer)?;
-        
+
         if bytes_read == 0 {
             break;
         }
@@ -329,11 +392,10 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
         let part_number = (i + 1) as i32;
         step!("上传分片 {}/{}", part_number, part_count);
 
-        let upload_url = upload_urls.get(&part_number)
+        let upload_url = upload_urls
+            .get(&part_number)
             .cloned()
-            .ok_or_else(|| 
-                ClientError::Api(format!("找不到分片 {} 的上传URL", part_number))
-            )?;
+            .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
@@ -350,7 +412,11 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             .await?;
 
         if !resp.status().is_success() {
-            return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp.status())));
+            return Err(ClientError::Api(format!(
+                "分片 {} 上传失败: {}",
+                part_number,
+                resp.status()
+            )));
         }
     }
 
@@ -369,14 +435,18 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
         config,
         &complete_url,
         body,
-        StorageType::PersonalNew
-    ).await?;
-    
+        StorageType::PersonalNew,
+    )
+    .await?;
+
     if let Some(success_flag) = resp_json.get("success").and_then(|s| s.as_bool()) {
         if success_flag {
             info!("完成响应: {:?}", resp_json);
         } else {
-            let message = resp_json.get("message").and_then(|m| m.as_str()).unwrap_or("完成上传失败");
+            let message = resp_json
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("完成上传失败");
             return Err(ClientError::Api(format!("完成上传失败: {}", message)));
         }
     } else {
@@ -394,11 +464,14 @@ async fn upload_family(
     file_size: i64,
 ) -> Result<(), ClientError> {
     let client = crate::client::Client::new(config.clone());
-    
+
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.0/getFileUploadURL";
-    
+
     let _parent_id = if remote_path == "/" || remote_path.is_empty() {
-        config.root_folder_id.clone().unwrap_or_else(|| "0".to_string())
+        config
+            .root_folder_id
+            .clone()
+            .unwrap_or_else(|| "0".to_string())
     } else {
         remote_path.to_string()
     };
@@ -413,7 +486,11 @@ async fn upload_family(
         remote_path.to_string()
     };
 
-    let report_size = if config.report_real_size { file_size } else { 0 };
+    let report_size = if config.report_real_size {
+        file_size
+    } else {
+        0
+    };
 
     let body = serde_json::json!({
         "catalogType": 3,
@@ -437,15 +514,22 @@ async fn upload_family(
 
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) != Some("0") {
+    if resp
+        .get("result")
+        .and_then(|r| r.get("resultCode"))
+        .and_then(|c| c.as_str())
+        != Some("0")
+    {
         return Err(ClientError::Api(format!("获取上传URL失败: {:?}", resp)));
     }
 
-    let upload_url = resp.pointer("/data/uploadResult/redirectionUrl")
+    let upload_url = resp
+        .pointer("/data/uploadResult/redirectionUrl")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ClientError::Api("未找到上传URL".to_string()))?;
-    
-    let upload_task_id = resp.pointer("/data/uploadResult/uploadTaskID")
+
+    let upload_task_id = resp
+        .pointer("/data/uploadResult/uploadTaskID")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
 
@@ -464,9 +548,9 @@ async fn upload_group(
     file_size: i64,
 ) -> Result<(), ClientError> {
     let client = crate::client::Client::new(config.clone());
-    
+
     let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/getGroupFileUploadURL";
-    
+
     let _parent_id = if remote_path == "/" || remote_path.is_empty() {
         "0".to_string()
     } else {
@@ -483,7 +567,11 @@ async fn upload_group(
         format!("root:/{}", remote_path.trim_start_matches('/'))
     };
 
-    let report_size = if config.report_real_size { file_size } else { 0 };
+    let report_size = if config.report_real_size {
+        file_size
+    } else {
+        0
+    };
 
     let body = serde_json::json!({
         "fileCount": 1,
@@ -501,15 +589,22 @@ async fn upload_group(
 
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) != Some("0") {
+    if resp
+        .get("result")
+        .and_then(|r| r.get("resultCode"))
+        .and_then(|c| c.as_str())
+        != Some("0")
+    {
         return Err(ClientError::Api(format!("获取上传URL失败: {:?}", resp)));
     }
 
-    let upload_url = resp.pointer("/data/uploadResult/redirectionUrl")
+    let upload_url = resp
+        .pointer("/data/uploadResult/redirectionUrl")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ClientError::Api("未找到上传URL".to_string()))?;
-    
-    let upload_task_id = resp.pointer("/data/uploadResult/uploadTaskID")
+
+    let upload_task_id = resp
+        .pointer("/data/uploadResult/uploadTaskID")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ClientError::Api("未找到上传任务ID".to_string()))?;
 
@@ -527,16 +622,16 @@ async fn upload_file_to_url(
     file_size: i64,
     file_name: &str,
 ) -> Result<(), ClientError> {
-    use std::io::{Seek, Read};
-    
+    use std::io::{Read, Seek};
+
     let part_size = get_part_size(file_size, 0);
     let part_count = (file_size + part_size - 1) / part_size;
 
     let mut file = std::fs::File::open(local_path)?;
-    
+
     for i in 0..part_count {
         file.seek(std::io::SeekFrom::Start(i as u64 * part_size as u64))?;
-        
+
         let read_size = if (i + 1) * part_size > file_size {
             file_size - i * part_size
         } else {
@@ -545,7 +640,7 @@ async fn upload_file_to_url(
 
         let mut buffer = vec![0u8; read_size as usize];
         let bytes_read = Read::read(&mut file, &mut buffer)?;
-        
+
         if bytes_read == 0 {
             break;
         }
@@ -554,11 +649,19 @@ async fn upload_file_to_url(
         step!("上传分片 {}/{}", part_number, part_count);
 
         let client = reqwest::Client::new();
-        
+
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Content-Type", format!("text/plain;name={}", file_name).parse().unwrap());
+        headers.insert(
+            "Content-Type",
+            format!("text/plain;name={}", file_name).parse().unwrap(),
+        );
         headers.insert("contentSize", file_size.to_string().parse().unwrap());
-        headers.insert("range", format!("bytes={}-{}", i * part_size, i * part_size + read_size - 1).parse().unwrap());
+        headers.insert(
+            "range",
+            format!("bytes={}-{}", i * part_size, i * part_size + read_size - 1)
+                .parse()
+                .unwrap(),
+        );
         headers.insert("uploadtaskID", upload_task_id.parse().unwrap());
         headers.insert("rangeType", "0".parse().unwrap());
 
@@ -570,7 +673,11 @@ async fn upload_file_to_url(
             .await?;
 
         if !resp.status().is_success() {
-            return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp.status())));
+            return Err(ClientError::Api(format!(
+                "分片 {} 上传失败: {}",
+                part_number,
+                resp.status()
+            )));
         }
     }
 

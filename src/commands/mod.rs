@@ -1,9 +1,9 @@
-pub mod login;
-pub mod list;
-pub mod upload;
-pub mod download;
+pub mod cp;
 pub mod delete;
+pub mod download;
+pub mod list;
+pub mod login;
 pub mod mkdir;
 pub mod mv;
-pub mod cp;
 pub mod rename;
+pub mod upload;

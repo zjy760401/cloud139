@@ -3,7 +3,7 @@
 mod config_test_extended {
     use cloud139::config::{Config, ConfigError};
     use std::fs;
-    use std::path::PathBuf;
+
     use tempfile::TempDir;
 
     fn create_temp_config_dir() -> TempDir {

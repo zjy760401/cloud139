@@ -28,7 +28,10 @@ pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, Clie
     get_personal_cloud_host_with_client(config, &HttpClientWrapper::new()).await
 }
 
-pub async fn get_personal_cloud_host_with_client(config: &mut Config, http_client: &HttpClientWrapper) -> Result<String, ClientError> {
+pub async fn get_personal_cloud_host_with_client(
+    config: &mut Config,
+    http_client: &HttpClientWrapper,
+) -> Result<String, ClientError> {
     if let Some(ref host) = config.personal_cloud_host {
         return Ok(host.clone());
     }
@@ -52,16 +55,33 @@ pub async fn get_personal_cloud_host_with_client(config: &mut Config, http_clien
     let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
 
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
-    headers.insert("Authorization", format!("Basic {}", config.authorization).parse().unwrap());
-    headers.insert("Content-Type", "application/json;charset=UTF-8".parse().unwrap());
+    headers.insert(
+        "Accept",
+        "application/json, text/plain, */*".parse().unwrap(),
+    );
+    headers.insert(
+        "Authorization",
+        format!("Basic {}", config.authorization).parse().unwrap(),
+    );
+    headers.insert(
+        "Content-Type",
+        "application/json;charset=UTF-8".parse().unwrap(),
+    );
     headers.insert("mcloud-channel", "1000101".parse().unwrap());
     headers.insert("mcloud-client", "10701".parse().unwrap());
-    headers.insert("mcloud-sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
+    headers.insert(
+        "mcloud-sign",
+        format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
+    );
     headers.insert("mcloud-version", "7.14.0".parse().unwrap());
     headers.insert("Origin", "https://yun.139.com".parse().unwrap());
     headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
-    headers.insert("x-DeviceInfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
+    headers.insert(
+        "x-DeviceInfo",
+        "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
+            .parse()
+            .unwrap(),
+    );
     headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
     headers.insert("x-inner-ntwk", "2".parse().unwrap());
     headers.insert("x-m4c-caller", "PC".parse().unwrap());
@@ -69,16 +89,13 @@ pub async fn get_personal_cloud_host_with_client(config: &mut Config, http_clien
     headers.insert("x-SvcType", "1".parse().unwrap());
     headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
 
-    let resp = client
-        .post(url)
-        .headers(headers)
-        .json(&body)
-        .send()
-        .await?;
+    let resp = client.post(url).headers(headers).json(&body).send().await?;
 
     let route_resp: QueryRoutePolicyResp = resp.json().await?;
 
-    let host = route_resp.data.route_policy_list
+    let host = route_resp
+        .data
+        .route_policy_list
         .into_iter()
         .find(|p| p.mod_name.as_deref() == Some("personal"))
         .map(|p| p.https_url.unwrap_or_default())
@@ -98,10 +115,14 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
 
-    let parts: Vec<&str> = path.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect();
-    
+    let parts: Vec<&str> = path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+
     let mut current_parent_id = String::new();
-    
+
     for (i, part) in parts.iter().enumerate() {
         let is_last = i == parts.len() - 1;
         let parent_id = if current_parent_id.is_empty() {
@@ -109,9 +130,9 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         } else {
             current_parent_id.clone()
         };
-        
+
         let url = format!("{}/file/list", host);
-        
+
         let body = serde_json::json!({
             "parentFileId": parent_id,
             "pageInfo": {
@@ -122,10 +143,12 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
             "orderDirection": "DESC"
         });
 
-        let list_resp: crate::models::PersonalListResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+        let list_resp: crate::models::PersonalListResp =
+            personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew)
+                .await?;
 
         let items = list_resp.data.map(|d| d.items).unwrap_or_default();
-        
+
         let target_id = items
             .into_iter()
             .find(|item| item.name.as_deref() == Some(part))
@@ -151,14 +174,19 @@ fn generate_rand_str(len: usize) -> String {
     use rand::Rng;
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let mut rng = rand::thread_rng();
-    (0..len).map(|_| {
-        let idx = rng.gen_range(0..CHARSET.len());
-        CHARSET[idx] as char
-    }).collect()
+    (0..len)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
 }
 
 pub fn parse_path_segments(path: &str) -> Vec<&str> {
-    path.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect()
+    path.trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 pub fn get_parent_id(current_parent_id: &str) -> String {
@@ -175,7 +203,8 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     body: serde_json::Value,
     storage_type: crate::client::StorageType,
 ) -> Result<T, ClientError> {
-    personal_api_request_with_client(config, url, body, storage_type, &HttpClientWrapper::new()).await
+    personal_api_request_with_client(config, url, body, storage_type, &HttpClientWrapper::new())
+        .await
 }
 
 pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de>>(
@@ -199,16 +228,30 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
     let client = &http_client.client;
 
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
-    headers.insert("Authorization", format!("Basic {}", config.authorization).parse().unwrap());
+    headers.insert(
+        "Accept",
+        "application/json, text/plain, */*".parse().unwrap(),
+    );
+    headers.insert(
+        "Authorization",
+        format!("Basic {}", config.authorization).parse().unwrap(),
+    );
     headers.insert("Caller", "web".parse().unwrap());
     headers.insert("CMS-DEVICE", "default".parse().unwrap());
     headers.insert("mcloud-channel", "1000101".parse().unwrap());
     headers.insert("mcloud-client", "10701".parse().unwrap());
     headers.insert("mcloud-route", "001".parse().unwrap());
-    headers.insert("mcloud-sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
+    headers.insert(
+        "mcloud-sign",
+        format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
+    );
     headers.insert("mcloud-version", "7.14.0".parse().unwrap());
-    headers.insert("x-DeviceInfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
+    headers.insert(
+        "x-DeviceInfo",
+        "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
+            .parse()
+            .unwrap(),
+    );
     headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
     headers.insert("x-inner-ntwk", "2".parse().unwrap());
     headers.insert("x-m4c-caller", "PC".parse().unwrap());
@@ -217,37 +260,54 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
     headers.insert("x-yun-api-version", "v1".parse().unwrap());
     headers.insert("x-yun-app-channel", "10000034".parse().unwrap());
     headers.insert("x-yun-channel-source", "10000034".parse().unwrap());
-    headers.insert("x-yun-client-info", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||".parse().unwrap());
+    headers.insert(
+        "x-yun-client-info",
+        "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||"
+            .parse()
+            .unwrap(),
+    );
     headers.insert("x-yun-module-type", "100".parse().unwrap());
     headers.insert("x-yun-svc-type", "1".parse().unwrap());
     headers.insert("Origin", "https://yun.139.com".parse().unwrap());
     headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
 
-    let resp = client
-        .post(url)
-        .headers(headers)
-        .json(&body)
-        .send()
-        .await?;
+    let resp = client.post(url).headers(headers).json(&body).send().await?;
 
     let result: T = resp.json().await?;
     Ok(result)
 }
 
-pub async fn check_file_exists(config: &Config, parent_file_id: &str, file_name: &str) -> Result<bool, ClientError> {
-    check_file_exists_with_client(config, parent_file_id, file_name, &HttpClientWrapper::new()).await
+pub async fn check_file_exists(
+    config: &Config,
+    parent_file_id: &str,
+    file_name: &str,
+) -> Result<bool, ClientError> {
+    check_file_exists_with_client(config, parent_file_id, file_name, &HttpClientWrapper::new())
+        .await
 }
 
-pub async fn check_file_exists_with_client(config: &Config, parent_file_id: &str, file_name: &str, http_client: &HttpClientWrapper) -> Result<bool, ClientError> {
+pub async fn check_file_exists_with_client(
+    config: &Config,
+    parent_file_id: &str,
+    file_name: &str,
+    http_client: &HttpClientWrapper,
+) -> Result<bool, ClientError> {
     let files = list_personal_files_with_client(config, parent_file_id, http_client).await?;
     Ok(files.iter().any(|f| f.name.as_deref() == Some(file_name)))
 }
 
-pub async fn list_personal_files(config: &Config, parent_file_id: &str) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+pub async fn list_personal_files(
+    config: &Config,
+    parent_file_id: &str,
+) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
     list_personal_files_with_client(config, parent_file_id, &HttpClientWrapper::new()).await
 }
 
-pub async fn list_personal_files_with_client(config: &Config, parent_file_id: &str, http_client: &HttpClientWrapper) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+pub async fn list_personal_files_with_client(
+    config: &Config,
+    parent_file_id: &str,
+    http_client: &HttpClientWrapper,
+) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/list", host);
@@ -263,14 +323,25 @@ pub async fn list_personal_files_with_client(config: &Config, parent_file_id: &s
         "parentFileId": parent_file_id
     });
 
-    let resp: crate::models::PersonalListResp = personal_api_request_with_client(&config, &url, body, crate::client::StorageType::PersonalNew, http_client).await?;
+    let resp: crate::models::PersonalListResp = personal_api_request_with_client(
+        &config,
+        &url,
+        body,
+        crate::client::StorageType::PersonalNew,
+        http_client,
+    )
+    .await?;
 
     Ok(resp.data.map(|d| d.items).unwrap_or_default())
 }
 
-pub async fn get_family_download_link(config: &Config, content_id: &str, path: &str) -> Result<String, ClientError> {
+pub async fn get_family_download_link(
+    config: &Config,
+    content_id: &str,
+    path: &str,
+) -> Result<String, ClientError> {
     let client = crate::client::Client::new(config.clone());
-    
+
     let body = serde_json::json!({
         "contentID": content_id,
         "path": path,
@@ -283,12 +354,15 @@ pub async fn get_family_download_link(config: &Config, content_id: &str, path: &
         }
     });
 
-    let resp: serde_json::Value = client.api_request_post(
-        "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.0/getFileDownLoadURL",
-        body
-    ).await?;
+    let resp: serde_json::Value = client
+        .api_request_post(
+            "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.0/getFileDownLoadURL",
+            body,
+        )
+        .await?;
 
-    let url = resp.pointer("/data/downloadURL")
+    let url = resp
+        .pointer("/data/downloadURL")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -296,9 +370,13 @@ pub async fn get_family_download_link(config: &Config, content_id: &str, path: &
     Ok(url)
 }
 
-pub async fn get_group_download_link(config: &Config, content_id: &str, path: &str) -> Result<String, ClientError> {
+pub async fn get_group_download_link(
+    config: &Config,
+    content_id: &str,
+    path: &str,
+) -> Result<String, ClientError> {
     let client = crate::client::Client::new(config.clone());
-    
+
     let body = serde_json::json!({
         "contentID": content_id,
         "groupID": config.cloud_id,
@@ -317,7 +395,8 @@ pub async fn get_group_download_link(config: &Config, content_id: &str, path: &s
         body
     ).await?;
 
-    let url = resp.pointer("/data/downloadURL")
+    let url = resp
+        .pointer("/data/downloadURL")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -327,7 +406,7 @@ pub async fn get_group_download_link(config: &Config, content_id: &str, path: &s
 
 pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError> {
     let client = crate::client::Client::new(config.clone());
-    
+
     let body = serde_json::json!({
         "catalogID": "",
         "catalogType": 3,
@@ -345,12 +424,15 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
         "sortDirection": 1
     });
 
-    let resp: serde_json::Value = client.api_request_post(
-        "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList",
-        body
-    ).await?;
+    let resp: serde_json::Value = client
+        .api_request_post(
+            "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList",
+            body,
+        )
+        .await?;
 
-    let path = resp.pointer("/data/path")
+    let path = resp
+        .pointer("/data/path")
         .and_then(|v| v.as_str())
         .map(|s| {
             let s = s.trim_start_matches("root:/");
@@ -360,7 +442,10 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
         .unwrap_or_default();
 
     if path.is_empty() {
-        if let Some(catalog_list) = resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+        if let Some(catalog_list) = resp
+            .pointer("/data/cloudCatalogList")
+            .and_then(|v| v.as_array())
+        {
             if let Some(first) = catalog_list.first() {
                 if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
                     let p = p.trim_start_matches("root:/");
@@ -376,7 +461,7 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
 
 pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, ClientError> {
     let client = crate::client::Client::new(config.clone());
-    
+
     let body = serde_json::json!({
         "groupID": config.cloud_id,
         "commonAccountInfo": {
@@ -389,21 +474,25 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
         }
     });
 
-    let resp: serde_json::Value = client.api_request_post(
-        "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/queryGroupContentList",
-        body
-    ).await?;
+    let resp: serde_json::Value = client
+        .api_request_post(
+            "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/queryGroupContentList",
+            body,
+        )
+        .await?;
 
-    if let Some(parent_catalog_id) = resp.pointer("/data/getGroupContentResult/parentCatalogID")
-        .and_then(|v| v.as_str()) 
+    if let Some(parent_catalog_id) = resp
+        .pointer("/data/getGroupContentResult/parentCatalogID")
+        .and_then(|v| v.as_str())
     {
         if !parent_catalog_id.is_empty() {
             return Ok(parent_catalog_id.to_string());
         }
     }
 
-    if let Some(catalog_list) = resp.pointer("/data/getGroupContentResult/catalogList")
-        .and_then(|v| v.as_array()) 
+    if let Some(catalog_list) = resp
+        .pointer("/data/getGroupContentResult/catalogList")
+        .and_then(|v| v.as_array())
     {
         if let Some(first) = catalog_list.first() {
             if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
@@ -412,10 +501,15 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
         }
     }
 
-    Err(ClientError::Other("Failed to get group root path".to_string()))
+    Err(ClientError::Other(
+        "Failed to get group root path".to_string(),
+    ))
 }
 
-pub async fn get_personal_download_link(config: &Config, file_id: &str) -> Result<String, ClientError> {
+pub async fn get_personal_download_link(
+    config: &Config,
+    file_id: &str,
+) -> Result<String, ClientError> {
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/getDownloadUrl", host);
@@ -424,9 +518,11 @@ pub async fn get_personal_download_link(config: &Config, file_id: &str) -> Resul
         "fileId": file_id
     });
 
-    let resp: serde_json::Value = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+    let resp: serde_json::Value =
+        personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
 
-    let cdn_url = resp.pointer("/data/cdnUrl")
+    let cdn_url = resp
+        .pointer("/data/cdnUrl")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -435,7 +531,8 @@ pub async fn get_personal_download_link(config: &Config, file_id: &str) -> Resul
         return Ok(cdn_url);
     }
 
-    let url = resp.pointer("/data/url")
+    let url = resp
+        .pointer("/data/url")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();

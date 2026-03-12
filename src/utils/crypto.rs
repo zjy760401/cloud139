@@ -26,7 +26,11 @@ pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8
     let mut cipher = Aes128Cbc::new(key.into(), iv.into());
     let mut data = plaintext.to_vec();
     let len = data.len();
-    let pad_len = if len.is_multiple_of(16) { 16 } else { 16 - (len % 16) };
+    let pad_len = if len.is_multiple_of(16) {
+        16
+    } else {
+        16 - (len % 16)
+    };
     data.extend(vec![pad_len as u8; pad_len]);
 
     let mut blocks: Vec<GenericArray<u8, typenum::U16>> = Vec::new();

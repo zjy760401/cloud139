@@ -2,9 +2,8 @@
 
 mod api_extended_test {
     use cloud139::client::api::{
-        HttpClientWrapper, get_personal_cloud_host_with_client, 
-        parse_path_segments, get_parent_id,
-        list_personal_files_with_client, check_file_exists_with_client
+        check_file_exists_with_client, get_parent_id, get_personal_cloud_host_with_client,
+        list_personal_files_with_client, parse_path_segments, HttpClientWrapper,
     };
     use cloud139::client::StorageType;
     use cloud139::config::Config;
@@ -94,18 +93,24 @@ mod api_extended_test {
     fn test_storage_type_from_str() {
         assert_eq!(StorageType::from_str_raw("family"), StorageType::Family);
         assert_eq!(StorageType::from_str_raw("group"), StorageType::Group);
-        assert_eq!(StorageType::from_str_raw("personal_new"), StorageType::PersonalNew);
-        assert_eq!(StorageType::from_str_raw("unknown"), StorageType::PersonalNew);
+        assert_eq!(
+            StorageType::from_str_raw("personal_new"),
+            StorageType::PersonalNew
+        );
+        assert_eq!(
+            StorageType::from_str_raw("unknown"),
+            StorageType::PersonalNew
+        );
     }
 
     #[tokio::test]
     async fn test_get_personal_cloud_host_with_cached_host() {
         let mut config = Config::default();
         config.personal_cloud_host = Some("https://cached.example.com".to_string());
-        
+
         let wrapper = HttpClientWrapper::new();
         let result = get_personal_cloud_host_with_client(&mut config, &wrapper).await;
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "https://cached.example.com".to_string());
     }
@@ -115,10 +120,10 @@ mod api_extended_test {
         let mut config = Config::default();
         config.account = "".to_string();
         config.authorization = "test".to_string();
-        
+
         let wrapper = HttpClientWrapper::new();
         let result = get_personal_cloud_host_with_client(&mut config, &wrapper).await;
-        
+
         assert!(result.is_err());
     }
 
@@ -144,7 +149,7 @@ mod api_extended_test {
         config.personal_cloud_host = Some("https://test.example.com".to_string());
         config.account = "test@139.com".to_string();
         config.authorization = "Basic dGVzdA==".to_string();
-        
+
         let wrapper = HttpClientWrapper::new();
         let result = list_personal_files_with_client(&config, "/", &wrapper).await;
         assert!(result.is_err());
@@ -156,7 +161,7 @@ mod api_extended_test {
         config.personal_cloud_host = Some("https://test.example.com".to_string());
         config.account = "test@139.com".to_string();
         config.authorization = "Basic dGVzdA==".to_string();
-        
+
         let wrapper = HttpClientWrapper::new();
         let result = check_file_exists_with_client(&config, "/", "test.txt", &wrapper).await;
         assert!(result.is_err());
@@ -220,7 +225,10 @@ mod api_extended_test {
         }"#;
         let resp: DownloadUrlResp = serde_json::from_str(json).unwrap();
         assert!(resp.base.success);
-        assert_eq!(resp.data.cdn_url, Some("http://cdn.example.com/file".to_string()));
+        assert_eq!(
+            resp.data.cdn_url,
+            Some("http://cdn.example.com/file".to_string())
+        );
     }
 
     #[test]

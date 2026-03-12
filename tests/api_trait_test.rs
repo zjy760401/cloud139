@@ -4,9 +4,6 @@
 mod tests {
     use cloud139::client::api_trait::{ApiClient, RealApiClient};
     use cloud139::config::Config;
-    use cloud139::client::StorageType;
-    use cloud139::models::PersonalListResp;
-    use async_trait::async_trait;
 
     #[tokio::test]
     async fn test_real_api_client() {

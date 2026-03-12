@@ -1,4 +1,4 @@
-use cloud139::commands::{list, mkdir, upload};
+use cloud139::commands::{list, mkdir};
 
 #[test]
 fn test_format_size_large_values() {

@@ -1,6 +1,6 @@
-pub mod auth;
 pub mod api;
 pub mod api_trait;
+pub mod auth;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -59,8 +59,7 @@ pub enum StorageType {
     Group,
 }
 
-
-impl StorageType { 
+impl StorageType {
     pub fn as_str(&self) -> &'static str {
         match self {
             StorageType::PersonalNew => "personal_new",
@@ -136,7 +135,8 @@ impl Client {
 
         let headers = self.build_headers(&ts, &rand_str, &sign);
 
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .post(url)
             .headers(headers)
             .json(&body)
@@ -149,27 +149,51 @@ impl Client {
 
     fn build_headers(&self, ts: &str, rand_str: &str, sign: &str) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+        headers.insert(
+            "Accept",
+            "application/json, text/plain, */*".parse().unwrap(),
+        );
         headers.insert("Caller", "web".parse().unwrap());
         headers.insert("CMS-DEVICE", "default".parse().unwrap());
-        headers.insert("Authorization", format!("Basic {}", self.config.authorization).parse().unwrap());
+        headers.insert(
+            "Authorization",
+            format!("Basic {}", self.config.authorization)
+                .parse()
+                .unwrap(),
+        );
         headers.insert("mcloud-channel", "1000101".parse().unwrap());
         headers.insert("mcloud-client", "10701".parse().unwrap());
         headers.insert("mcloud-route", "001".parse().unwrap());
-        headers.insert("mcloud-sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
+        headers.insert(
+            "mcloud-sign",
+            format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
+        );
         headers.insert("mcloud-version", "7.14.0".parse().unwrap());
         headers.insert("Origin", "https://yun.139.com".parse().unwrap());
         headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
-        headers.insert("x-DeviceInfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
+        headers.insert(
+            "x-DeviceInfo",
+            "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
+                .parse()
+                .unwrap(),
+        );
         headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
         headers.insert("x-inner-ntwk", "2".parse().unwrap());
         headers.insert("x-m4c-caller", "PC".parse().unwrap());
         headers.insert("x-m4c-src", "10002".parse().unwrap());
-        headers.insert("x-SvcType", self.config.storage_type().svc_type().parse().unwrap());
+        headers.insert(
+            "x-SvcType",
+            self.config.storage_type().svc_type().parse().unwrap(),
+        );
         headers.insert("x-yun-api-version", "v1".parse().unwrap());
         headers.insert("x-yun-app-channel", "10000034".parse().unwrap());
         headers.insert("x-yun-channel-source", "10000034".parse().unwrap());
-        headers.insert("x-yun-client-info", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||".parse().unwrap());
+        headers.insert(
+            "x-yun-client-info",
+            "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||"
+                .parse()
+                .unwrap(),
+        );
         headers.insert("x-yun-module-type", "100".parse().unwrap());
         headers.insert("x-yun-svc-type", "1".parse().unwrap());
         headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
@@ -181,10 +205,12 @@ pub fn generate_rand_str(len: usize) -> String {
     use rand::Rng;
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let mut rng = rand::thread_rng();
-    (0..len).map(|_| {
-        let idx = rng.gen_range(0..CHARSET.len());
-        CHARSET[idx] as char
-    }).collect()
+    (0..len)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
 }
 
 pub fn sort_json_value_to_string(value: &serde_json::Value) -> String {
@@ -192,9 +218,16 @@ pub fn sort_json_value_to_string(value: &serde_json::Value) -> String {
         serde_json::Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
             keys.sort();
-            let pairs: Vec<String> = keys.iter().map(|key| {
-                format!("{}:{}", serde_json::to_string(key).unwrap_or_default(), sort_json_value_to_string(&map[*key]))
-            }).collect();
+            let pairs: Vec<String> = keys
+                .iter()
+                .map(|key| {
+                    format!(
+                        "{}:{}",
+                        serde_json::to_string(key).unwrap_or_default(),
+                        sort_json_value_to_string(&map[*key])
+                    )
+                })
+                .collect();
             format!("{{{}}}", pairs.join(","))
         }
         serde_json::Value::Array(arr) => {
@@ -208,15 +241,9 @@ pub fn sort_json_value_to_string(value: &serde_json::Value) -> String {
                 serde_json::to_string(s).unwrap_or_else(|_| s.clone())
             }
         }
-        serde_json::Value::Number(n) => {
-            n.to_string()
-        }
-        serde_json::Value::Bool(b) => {
-            b.to_string()
-        }
-        serde_json::Value::Null => {
-            "null".to_string()
-        }
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Null => "null".to_string(),
     }
 }
 
@@ -226,27 +253,30 @@ impl Client {
         pathname: &str,
         body: serde_json::Value,
     ) -> Result<T, ClientError> {
-        let url = format!("https://group.yun.139.com/hcy/family/adapter/andAlbum/openApi{}", pathname);
-        
-        let headers = self.build_and_album_headers();
-        
-        let key1 = hex::decode(KEY_HEX_1).map_err(|e| ClientError::Other(e.to_string()))?;
-        
-        let sorted_body_str = sort_json_value_to_string(&body);
-        
-        let iv = vec![0u8; 16];
-        let encrypted = crate::utils::crypto::aes_cbc_encrypt(sorted_body_str.as_bytes(), &key1, &iv)
-            .map_err(|e| ClientError::Other(e.to_string()))?;
-        
-        let mut payload = iv.clone();
-        payload.extend(encrypted);
-        
-        let payload_base64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            &payload,
+        let url = format!(
+            "https://group.yun.139.com/hcy/family/adapter/andAlbum/openApi{}",
+            pathname
         );
 
-        let resp = self.http_client
+        let headers = self.build_and_album_headers();
+
+        let key1 = hex::decode(KEY_HEX_1).map_err(|e| ClientError::Other(e.to_string()))?;
+
+        let sorted_body_str = sort_json_value_to_string(&body);
+
+        let iv = vec![0u8; 16];
+        let encrypted =
+            crate::utils::crypto::aes_cbc_encrypt(sorted_body_str.as_bytes(), &key1, &iv)
+                .map_err(|e| ClientError::Other(e.to_string()))?;
+
+        let mut payload = iv.clone();
+        payload.extend(encrypted);
+
+        let payload_base64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &payload);
+
+        let resp = self
+            .http_client
             .post(&url)
             .headers(headers)
             .body(payload_base64)
@@ -255,7 +285,7 @@ impl Client {
 
         let resp_body = resp.bytes().await?;
         let resp_str = String::from_utf8_lossy(&resp_body);
-        
+
         let decrypted = if resp_str.trim_start().starts_with('{') {
             resp_body.to_vec()
         } else {
@@ -265,7 +295,7 @@ impl Client {
 
         let result: T = serde_json::from_slice(&decrypted)
             .map_err(|e| ClientError::Other(format!("Failed to parse response: {}", e)))?;
-        
+
         Ok(result)
     }
 
@@ -275,23 +305,42 @@ impl Client {
         body: serde_json::Value,
     ) -> Result<T, ClientError> {
         let url = format!("https://group.yun.139.com/hcy/mutual/adapter{}", pathname);
-        
+
         let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let rand_str = generate_rand_str(16);
         let body_str = body.to_string();
         let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
 
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
-        headers.insert("Authorization", format!("Basic {}", self.config.authorization).parse().unwrap());
-        headers.insert("Content-Type", "application/json;charset=UTF-8".parse().unwrap());
+        headers.insert(
+            "Accept",
+            "application/json, text/plain, */*".parse().unwrap(),
+        );
+        headers.insert(
+            "Authorization",
+            format!("Basic {}", self.config.authorization)
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(
+            "Content-Type",
+            "application/json;charset=UTF-8".parse().unwrap(),
+        );
         headers.insert("mcloud-channel", "1000101".parse().unwrap());
         headers.insert("mcloud-client", "10701".parse().unwrap());
-        headers.insert("mcloud-sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
+        headers.insert(
+            "mcloud-sign",
+            format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
+        );
         headers.insert("mcloud-version", "7.14.0".parse().unwrap());
         headers.insert("Origin", "https://yun.139.com".parse().unwrap());
         headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
-        headers.insert("x-DeviceInfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
+        headers.insert(
+            "x-DeviceInfo",
+            "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
+                .parse()
+                .unwrap(),
+        );
         headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
         headers.insert("x-inner-ntwk", "2".parse().unwrap());
         headers.insert("x-m4c-caller", "PC".parse().unwrap());
@@ -299,7 +348,8 @@ impl Client {
         headers.insert("x-SvcType", "2".parse().unwrap());
         headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
 
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .post(&url)
             .headers(headers)
             .json(&body)
@@ -313,7 +363,12 @@ impl Client {
     fn build_and_album_headers(&self) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("Host", "group.yun.139.com".parse().unwrap());
-        headers.insert("authorization", format!("Basic {}", self.config.authorization).parse().unwrap());
+        headers.insert(
+            "authorization",
+            format!("Basic {}", self.config.authorization)
+                .parse()
+                .unwrap(),
+        );
         headers.insert("x-svctype", "2".parse().unwrap());
         headers.insert("hcy-cool-flag", "1".parse().unwrap());
         headers.insert("api-version", "v2".parse().unwrap());
@@ -321,7 +376,10 @@ impl Client {
         headers.insert("x-sdk-channelsrc", "".parse().unwrap());
         headers.insert("x-mm-source", "0".parse().unwrap());
         headers.insert("x-deviceinfo", "1|127.0.0.1|1|12.3.2|Xiaomi|23116PN5BC||02-00-00-00-00-00|android 15|1440x3200|android|zh||||032|0|".parse().unwrap());
-        headers.insert("content-type", "application/json; charset=utf-8".parse().unwrap());
+        headers.insert(
+            "content-type",
+            "application/json; charset=utf-8".parse().unwrap(),
+        );
         headers.insert("user-agent", "okhttp/4.11.0".parse().unwrap());
         headers.insert("accept-encoding", "gzip".parse().unwrap());
         headers

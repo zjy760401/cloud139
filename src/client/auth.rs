@@ -1,6 +1,6 @@
-use serde::Deserialize;
 use crate::client::ClientError;
 use crate::config::Config;
+use serde::Deserialize;
 
 pub async fn login(
     token: &str,
@@ -30,17 +30,17 @@ pub async fn login(
 }
 
 fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
-    let decoded = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        token,
-    ).map_err(|e| ClientError::Other(format!("Failed to decode token: {}", e)))?;
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, token)
+        .map_err(|e| ClientError::Other(format!("Failed to decode token: {}", e)))?;
 
     let decode_str = String::from_utf8(decoded)
         .map_err(|e| ClientError::Other(format!("Invalid token encoding: {}", e)))?;
 
     let parts: Vec<&str> = decode_str.split(':').collect();
     if parts.len() < 3 {
-        return Err(ClientError::Other("Invalid token format: missing parts".to_string()));
+        return Err(ClientError::Other(
+            "Invalid token format: missing parts".to_string(),
+        ));
     }
 
     let account = parts[1].to_string();
@@ -48,10 +48,13 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
 
     let token_parts: Vec<&str> = token_info.split('|').collect();
     if token_parts.len() < 4 {
-        return Err(ClientError::Other("Invalid token format: missing token info parts".to_string()));
+        return Err(ClientError::Other(
+            "Invalid token format: missing token info parts".to_string(),
+        ));
     }
 
-    let expire_time = token_parts[3].parse::<i64>()
+    let expire_time = token_parts[3]
+        .parse::<i64>()
         .map_err(|_| ClientError::Other("Invalid expiration timestamp".to_string()))?;
 
     Ok((account, token_info, expire_time))
@@ -65,7 +68,9 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
         return Err(ClientError::TokenExpired);
     }
 
-    let refresh_token = config.refresh_token.as_ref()
+    let refresh_token = config
+        .refresh_token
+        .as_ref()
         .ok_or(ClientError::TokenExpired)?;
 
     let url = "https://aas.caiyun.feixin.10086.cn/tellin/authTokenRefresh.do";
@@ -80,7 +85,10 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
         .build()?;
 
     let mut req_headers = reqwest::header::HeaderMap::new();
-    req_headers.insert("Content-Type", "application/xml;charset=UTF-8".parse().unwrap());
+    req_headers.insert(
+        "Content-Type",
+        "application/xml;charset=UTF-8".parse().unwrap(),
+    );
     req_headers.insert("Referer", "https://yun.139.com/".parse().unwrap());
 
     let resp = client
@@ -107,7 +115,10 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
         .map_err(|e| ClientError::Other(format!("Failed to parse refresh response: {}", e)))?;
 
     if refresh_resp.return_code != "0" {
-        return Err(ClientError::Other(format!("Token refresh failed with code: {}", refresh_resp.return_code)));
+        return Err(ClientError::Other(format!(
+            "Token refresh failed with code: {}",
+            refresh_resp.return_code
+        )));
     }
 
     let authorization = base64::Engine::encode(
@@ -118,7 +129,8 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
     let mut new_config = config.clone();
     new_config.authorization = authorization;
     new_config.refresh_token = Some(refresh_resp.access_token);
-    new_config.token_expire_time = Some(chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000);
+    new_config.token_expire_time =
+        Some(chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000);
 
     Ok(new_config)
 }
@@ -126,30 +138,33 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
 fn check_token_expiration(config: &Config) -> Result<(), ClientError> {
     let auth_parts: Vec<&str> = config.authorization.split(':').collect();
     if auth_parts.len() < 3 {
-        return Err(ClientError::Other("Invalid authorization format".to_string()));
+        return Err(ClientError::Other(
+            "Invalid authorization format".to_string(),
+        ));
     }
-    
+
     let token_part = auth_parts[2];
     let token_parts: Vec<&str> = token_part.split('|').collect();
-    
+
     if token_parts.len() < 4 {
         return Err(ClientError::Other("Invalid token format".to_string()));
     }
-    
-    let expiration = token_parts[3].parse::<i64>()
+
+    let expiration = token_parts[3]
+        .parse::<i64>()
         .map_err(|_| ClientError::Other("Invalid expiration timestamp".to_string()))?;
-    
+
     let now = chrono::Utc::now().timestamp_millis();
     let remaining = expiration - now;
-    
+
     if remaining < 0 {
         return Err(ClientError::TokenExpired);
     }
-    
+
     if remaining > 15 * 24 * 60 * 60 * 1000 {
         return Ok(());
     }
-    
+
     Ok(())
 }
 

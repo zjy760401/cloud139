@@ -1,7 +1,7 @@
-use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchMoveResp;
-use crate::{success, error, warn};
+use crate::{error, success, warn};
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct MvArgs {
@@ -44,7 +44,12 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn mv_personal(config: &crate::config::Config, sources: &[String], target: &str, force: bool) -> Result<(), ClientError> {
+async fn mv_personal(
+    config: &crate::config::Config,
+    sources: &[String],
+    target: &str,
+    force: bool,
+) -> Result<(), ClientError> {
     let target_normalized = if target == "/" || target.is_empty() {
         "/".to_string()
     } else {
@@ -53,17 +58,20 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
 
     let mut source_ids: Vec<String> = Vec::new();
     let mut file_names: Vec<String> = Vec::new();
-    
+
     for source in sources {
         let source_path = std::path::Path::new(source);
-        let source_parent = source_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-        
+        let source_parent = source_path
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
         let source_parent_normalized = if source_parent.is_empty() {
             "/".to_string()
         } else {
             source_parent
         };
-        
+
         if source_parent_normalized == target_normalized {
             warn!("源目录和目标目录相同，跳过: {}", source);
             continue;
@@ -74,8 +82,9 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
             warn!("无效的源文件路径: {}", source);
             continue;
         }
-        
-        let file_name = source_path.file_name()
+
+        let file_name = source_path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         source_ids.push(source_id);
@@ -95,15 +104,19 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
 
     if !force {
         for file_name in &file_names {
-            let exists = crate::client::api::check_file_exists(config, &target_id, file_name).await?;
+            let exists =
+                crate::client::api::check_file_exists(config, &target_id, file_name).await?;
             if exists {
-                warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", file_name);
+                warn!(
+                    "云端已存在「{}」，如果继续则云端会自动进行重命名",
+                    file_name
+                );
                 error!("请使用 --force 参数确认继续");
                 return Err(ClientError::ForceRequired);
             }
         }
     }
-    
+
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/batchMove", host);
@@ -113,7 +126,9 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
         "toParentFileId": target_id
     });
 
-    let resp: BatchMoveResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
+    let resp: BatchMoveResp =
+        crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew)
+            .await?;
 
     if resp.base.success {
         success!("移动成功");
@@ -126,25 +141,39 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
     Ok(())
 }
 
-async fn mv_family(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
+async fn mv_family(
+    config: &crate::config::Config,
+    sources: &[String],
+    target: &str,
+) -> Result<(), ClientError> {
     if sources.len() > 1 {
         error!("家庭云暂不支持批量移动");
         return Err(ClientError::UnsupportedFamilyBatchMove);
     }
 
     let client = Client::new(config.clone());
-    
+
     let source = &sources[0];
     let source = source.trim_start_matches('/');
-    
+
     let parent_path = std::path::Path::new(source);
-    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    
-    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
-    
+    let parent_dir = parent_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let file_name = parent_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let catalog_id = if parent_dir.is_empty() {
+        "0".to_string()
+    } else {
+        parent_dir.clone()
+    };
+
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
-    
+
     let list_body = serde_json::json!({
         "catalogID": catalog_id,
         "sortType": 1,
@@ -159,27 +188,45 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     });
 
     let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
-    
+
     let mut is_dir = false;
     let mut found_id = String::new();
     let mut found_path = String::new();
-    
-    if let Some(catalog_list) = list_resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+
+    if let Some(catalog_list) = list_resp
+        .pointer("/data/cloudCatalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
-                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_id = cat
+                    .get("catalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 break;
             }
         }
     }
-    
+
     if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp.pointer("/data/cloudContentList").and_then(|v| v.as_array()) {
+        if let Some(content_list) = list_resp
+            .pointer("/data/cloudContentList")
+            .and_then(|v| v.as_array())
+        {
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    found_path = list_resp.pointer("/data/path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_id = content
+                        .get("contentID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    found_path = list_resp
+                        .pointer("/data/path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     break;
                 }
             }
@@ -205,7 +252,10 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     };
 
     let target_path = if target.is_empty() {
-        config.root_folder_id.clone().unwrap_or_else(|| "0".to_string())
+        config
+            .root_folder_id
+            .clone()
+            .unwrap_or_else(|| "0".to_string())
     } else {
         format!("{}/{}", target, "")
     };
@@ -226,9 +276,16 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
         "taskType": 3
     });
 
-    let resp: serde_json::Value = client.isbo_post("/isbo/openApi/createBatchOprTask", body).await?;
+    let resp: serde_json::Value = client
+        .isbo_post("/isbo/openApi/createBatchOprTask", body)
+        .await?;
 
-    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+    if resp
+        .get("result")
+        .and_then(|r| r.get("resultCode"))
+        .and_then(|c| c.as_str())
+        == Some("0")
+    {
         success!("移动成功");
     } else {
         error!("移动失败: {:?}", resp);
@@ -238,7 +295,11 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     Ok(())
 }
 
-async fn mv_group(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
+async fn mv_group(
+    config: &crate::config::Config,
+    sources: &[String],
+    target: &str,
+) -> Result<(), ClientError> {
     if sources.len() > 1 {
         error!("群组云暂不支持批量移动");
         return Err(ClientError::UnsupportedGroupBatchMove);
@@ -246,15 +307,25 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
 
     let source = &sources[0];
     let source = source.trim_start_matches('/');
-    
+
     let parent_path = std::path::Path::new(source);
-    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    
-    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
-    
+    let parent_dir = parent_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let file_name = parent_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let catalog_id = if parent_dir.is_empty() {
+        "0".to_string()
+    } else {
+        parent_dir.clone()
+    };
+
     let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
-    
+
     let list_body = serde_json::json!({
         "groupID": config.cloud_id,
         "catalogID": catalog_id,
@@ -267,28 +338,50 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
 
     let client = Client::new(config.clone());
     let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
-    
+
     let mut is_dir = false;
     let mut found_id = String::new();
     let mut found_path = String::new();
-    
-    if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+
+    if let Some(catalog_list) = list_resp
+        .pointer("/data/getGroupContentResult/catalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
-                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                found_path = cat.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_id = cat
+                    .get("catalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = cat
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 break;
             }
         }
     }
-    
+
     if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp.pointer("/data/getGroupContentResult/contentList").and_then(|v| v.as_array()) {
+        if let Some(content_list) = list_resp
+            .pointer("/data/getGroupContentResult/contentList")
+            .and_then(|v| v.as_array())
+        {
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    found_path = list_resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_id = content
+                        .get("contentID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    found_path = list_resp
+                        .pointer("/data/getGroupContentResult/parentCatalogID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     break;
                 }
             }
@@ -349,7 +442,12 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
 
     let resp: serde_json::Value = client.api_request_post(move_url, body).await?;
 
-    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+    if resp
+        .get("result")
+        .and_then(|r| r.get("resultCode"))
+        .and_then(|c| c.as_str())
+        == Some("0")
+    {
         success!("移动成功");
     } else {
         error!("移动失败: {:?}", resp);

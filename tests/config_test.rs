@@ -1,6 +1,5 @@
 use cloud139::client::StorageType;
 use cloud139::config::{Config, ConfigError};
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -34,7 +33,7 @@ fn test_config_load_invalid_json() {
 
 #[test]
 fn test_config_save_and_load() {
-    let (temp_dir, config_path) = create_temp_dir();
+    let (_temp_dir, config_path) = create_temp_dir();
 
     let config = Config {
         authorization: "test_auth".to_string(),

@@ -1,8 +1,8 @@
-use clap::Parser;
-use log::info;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchCopyResp;
-use crate::{success, error, warn};
+use crate::{error, success, warn};
+use clap::Parser;
+use log::info;
 
 #[derive(Parser, Debug)]
 pub struct CpArgs {
@@ -38,7 +38,13 @@ pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn cp_personal(config: &crate::config::Config, source: &str, target: &str, _merge: bool, force: bool) -> Result<(), ClientError> {
+async fn cp_personal(
+    config: &crate::config::Config,
+    source: &str,
+    target: &str,
+    _merge: bool,
+    force: bool,
+) -> Result<(), ClientError> {
     let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if source_id.is_empty() {
         error!("错误: 无效的源文件路径");
@@ -46,7 +52,8 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     }
 
     let source_path = std::path::Path::new(source);
-    let file_name = source_path.file_name()
+    let file_name = source_path
+        .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
@@ -59,12 +66,15 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     if !force {
         let exists = crate::client::api::check_file_exists(config, &target_id, &file_name).await?;
         if exists {
-            warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", file_name);
+            warn!(
+                "云端已存在「{}」，如果继续则云端会自动进行重命名",
+                file_name
+            );
             error!("请使用 --force 参数确认继续");
             return Err(ClientError::ForceRequired);
         }
     }
-    
+
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/batchCopy", host);
@@ -74,7 +84,9 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
         "toParentFileId": target_id
     });
 
-    let resp: BatchCopyResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
+    let resp: BatchCopyResp =
+        crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew)
+            .await?;
 
     if resp.base.success {
         success!("复制成功");
@@ -87,7 +99,11 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     Ok(())
 }
 
-async fn cp_family(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
+async fn cp_family(
+    config: &crate::config::Config,
+    source: &str,
+    target: &str,
+) -> Result<(), ClientError> {
     let client = Client::new(config.clone());
 
     let body = serde_json::json!({
@@ -102,26 +118,42 @@ async fn cp_family(config: &crate::config::Config, source: &str, target: &str) -
         "sourceContentIDs": [source]
     });
 
-    let resp: serde_json::Value = client.and_album_request("/copyContentCatalog", body).await?;
+    let resp: serde_json::Value = client
+        .and_album_request("/copyContentCatalog", body)
+        .await?;
 
     info!("复制响应: {:?}", resp);
     Ok(())
 }
 
-async fn cp_group(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
+async fn cp_group(
+    config: &crate::config::Config,
+    source: &str,
+    target: &str,
+) -> Result<(), ClientError> {
     let client = Client::new(config.clone());
-    
+
     let source = source.trim_start_matches('/');
     let target = target.trim_start_matches('/');
-    
+
     let parent_path = std::path::Path::new(source);
-    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    
-    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
-    
+    let parent_dir = parent_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let file_name = parent_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let catalog_id = if parent_dir.is_empty() {
+        "0".to_string()
+    } else {
+        parent_dir.clone()
+    };
+
     let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
-    
+
     let list_body = serde_json::json!({
         "groupID": config.cloud_id,
         "catalogID": catalog_id,
@@ -133,28 +165,50 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
     });
 
     let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
-    
+
     let mut is_dir = false;
     let mut found_id = String::new();
     let mut found_path = String::new();
-    
-    if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+
+    if let Some(catalog_list) = list_resp
+        .pointer("/data/getGroupContentResult/catalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
                 is_dir = true;
-                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                found_path = cat.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                found_id = cat
+                    .get("catalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = cat
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 break;
             }
         }
     }
-    
+
     if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp.pointer("/data/getGroupContentResult/contentList").and_then(|v| v.as_array()) {
+        if let Some(content_list) = list_resp
+            .pointer("/data/getGroupContentResult/contentList")
+            .and_then(|v| v.as_array())
+        {
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    found_path = list_resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    found_id = content
+                        .get("contentID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    found_path = list_resp
+                        .pointer("/data/getGroupContentResult/parentCatalogID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     break;
                 }
             }
@@ -172,9 +226,9 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
         format!("root:/{}/{}", found_path.trim_end_matches('/'), found_id)
     };
 
-    let dest_catalog_id = if target.is_empty() { 
-        "root:".to_string() 
-    } else { 
+    let dest_catalog_id = if target.is_empty() {
+        "root:".to_string()
+    } else {
         format!("root:/{}", target.trim_end_matches('/'))
     };
 
@@ -204,9 +258,16 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
         })
     };
 
-    let resp: serde_json::Value = client.and_album_request("/copyContentCatalog", body).await?;
+    let resp: serde_json::Value = client
+        .and_album_request("/copyContentCatalog", body)
+        .await?;
 
-    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+    if resp
+        .get("result")
+        .and_then(|r| r.get("resultCode"))
+        .and_then(|c| c.as_str())
+        == Some("0")
+    {
         success!("复制成功");
     } else {
         error!("复制失败: {:?}", resp);

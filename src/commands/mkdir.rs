@@ -1,6 +1,6 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::PersonalUploadResp;
-use crate::{success, error, info, warn};
+use crate::{error, info, success, warn};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -40,13 +40,13 @@ pub fn parse_path(path: &str) -> Result<(String, String), ClientError> {
     }
 
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    
+
     if parts.is_empty() || (parts.len() == 1 && parts[0].is_empty()) {
         return Err(ClientError::Other("无效的路径".to_string()));
     }
 
     let name = parts.last().unwrap().to_string();
-    
+
     let parent = if parts.len() == 1 {
         "/".to_string()
     } else {
@@ -103,7 +103,9 @@ async fn mkdir_personal(
     if resp.base.success {
         success!(
             "目录创建成功: {}",
-            resp.data.map(|d| d.file_name.unwrap_or_default()).unwrap_or_default()
+            resp.data
+                .map(|d| d.file_name.unwrap_or_default())
+                .unwrap_or_default()
         );
     } else {
         let msg = resp.base.message.as_deref().unwrap_or("未知错误");

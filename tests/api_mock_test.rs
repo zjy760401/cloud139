@@ -1,14 +1,12 @@
 #![allow(dead_code)]
 
-use cloud139::client::api_trait::ApiClient;
-use cloud139::client::{ClientError, StorageType};
+use cloud139::client::StorageType;
 use cloud139::config::Config;
-use cloud139::models::*;
 
 #[tokio::test]
 async fn test_get_file_id_by_path_root() {
     let config = Config::default();
-    
+
     let result = cloud139::client::api::get_file_id_by_path(&config, "/").await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "");
@@ -17,7 +15,7 @@ async fn test_get_file_id_by_path_root() {
 #[tokio::test]
 async fn test_get_file_id_by_path_empty() {
     let config = Config::default();
-    
+
     let result = cloud139::client::api::get_file_id_by_path(&config, "").await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "");
@@ -27,7 +25,7 @@ async fn test_get_file_id_by_path_empty() {
 async fn test_get_file_id_by_path_with_host_cached() {
     let mut config = Config::default();
     config.personal_cloud_host = Some("https://cached.example.com".to_string());
-    
+
     let result = cloud139::client::api::get_file_id_by_path(&config, "/").await;
     assert!(result.is_ok());
 }

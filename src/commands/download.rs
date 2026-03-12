@@ -1,8 +1,8 @@
-use clap::Parser;
-use std::path::Path;
 use crate::client::{ClientError, StorageType};
 use crate::models::DownloadUrlResp;
-use crate::{info, success, error, step};
+use crate::{error, info, step, success};
+use clap::Parser;
+use std::path::Path;
 
 #[derive(Parser, Debug)]
 pub struct DownloadArgs {
@@ -19,7 +19,12 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
             let ends_with_slash = path.ends_with('/');
             let path = path.trim_end_matches('/');
             let path_obj = Path::new(path);
-            if path_obj.is_dir() || ends_with_slash || (!path.contains('.') && !path.ends_with(".txt") && !path_obj.extension().is_some()) {
+            if path_obj.is_dir()
+                || ends_with_slash
+                || (!path.contains('.')
+                    && !path.ends_with(".txt")
+                    && !path_obj.extension().is_some())
+            {
                 let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
                 let file_name = parts.first().copied().unwrap_or_else(|| remote_path);
                 if file_name.is_empty() || file_name == remote_path {
@@ -53,9 +58,17 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
             let ends_with_slash = path.ends_with('/');
             let path = path.trim_end_matches('/');
             let path_obj = Path::new(path);
-            if path_obj.is_dir() || ends_with_slash || (!path.contains('.') && !path.ends_with(".txt") && !path_obj.extension().is_some()) {
+            if path_obj.is_dir()
+                || ends_with_slash
+                || (!path.contains('.')
+                    && !path.ends_with(".txt")
+                    && !path_obj.extension().is_some())
+            {
                 let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-                let file_name = parts.first().copied().unwrap_or_else(|| remote_path.as_str());
+                let file_name = parts
+                    .first()
+                    .copied()
+                    .unwrap_or_else(|| remote_path.as_str());
                 if file_name.is_empty() || file_name == remote_path {
                     format!("{}/download", path)
                 } else {
@@ -67,7 +80,10 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
         }
         _ => {
             let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-            let file_name = parts.first().copied().unwrap_or_else(|| remote_path.as_str());
+            let file_name = parts
+                .first()
+                .copied()
+                .unwrap_or_else(|| remote_path.as_str());
             if file_name.is_empty() || file_name == remote_path {
                 "download".to_string()
             } else {
@@ -105,10 +121,15 @@ async fn download_personal(
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
 
-    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+    let parts: Vec<&str> = remote_path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     let file_name = parts.last().unwrap_or(&remote_path);
     let parent_id = if parts.len() > 1 {
-        crate::client::api::get_file_id_by_path(&config, &parts[..parts.len()-1].join("/")).await?
+        crate::client::api::get_file_id_by_path(&config, &parts[..parts.len() - 1].join("/"))
+            .await?
     } else {
         "/".to_string()
     };
@@ -123,11 +144,23 @@ async fn download_personal(
         "orderBy": "updated_at",
         "orderDirection": "DESC"
     });
-    let list_resp: crate::models::PersonalListResp = crate::client::api::personal_api_request(&config, &list_url, list_body, StorageType::PersonalNew).await?;
+    let list_resp: crate::models::PersonalListResp = crate::client::api::personal_api_request(
+        &config,
+        &list_url,
+        list_body,
+        StorageType::PersonalNew,
+    )
+    .await?;
 
     if let Some(items) = list_resp.data.map(|d| d.items) {
-        if let Some(item) = items.iter().find(|item| item.name.as_deref() == Some(file_name)) {
-            if item.file_type.as_deref() == Some("1") || item.file_type.as_deref() == Some("folder") || item.file_type.as_deref() == Some("dir") {
+        if let Some(item) = items
+            .iter()
+            .find(|item| item.name.as_deref() == Some(file_name))
+        {
+            if item.file_type.as_deref() == Some("1")
+                || item.file_type.as_deref() == Some("folder")
+                || item.file_type.as_deref() == Some("dir")
+            {
                 error!("不支持下载目录，请使用 ls 命令查看目录内容");
                 return Err(ClientError::UnsupportedDownloadDirectory);
             }
@@ -140,10 +173,15 @@ async fn download_personal(
         "fileId": file_id,
     });
 
-    let resp: DownloadUrlResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
+    let resp: DownloadUrlResp =
+        crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew)
+            .await?;
 
     if !resp.base.success {
-        return Err(ClientError::Api(format!("获取下载链接失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"))));
+        return Err(ClientError::Api(format!(
+            "获取下载链接失败: {}",
+            resp.base.message.as_deref().unwrap_or("未知错误")
+        )));
     }
 
     let download_url = resp.data.cdn_url.or(resp.data.url).unwrap_or_default();
@@ -155,13 +193,14 @@ async fn download_personal(
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {
-        let file_name = resp.data.file_name
-            .unwrap_or_else(|| {
-                let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-                parts.first().copied()
-                    .unwrap_or_else(|| remote_path)
-                    .to_string()
-            });
+        let file_name = resp.data.file_name.unwrap_or_else(|| {
+            let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
+            parts
+                .first()
+                .copied()
+                .unwrap_or_else(|| remote_path)
+                .to_string()
+        });
         let file_path = local_path_obj.join(&file_name);
         download_file(&download_url, &file_path).await?;
     } else {
@@ -195,7 +234,12 @@ async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> 
         file.write_all(&chunk)?;
         downloaded += chunk.len() as u64;
         if let Some(total) = total_size {
-            print!("\r下载进度: {}/{} ({:.1}%)", downloaded, total, downloaded as f64 / total as f64 * 100.0);
+            print!(
+                "\r下载进度: {}/{} ({:.1}%)",
+                downloaded,
+                total,
+                downloaded as f64 / total as f64 * 100.0
+            );
         }
     }
 
@@ -216,13 +260,16 @@ async fn download_family(
 
     let file_name = parts.last().unwrap();
     let parent_path = if parts.len() > 1 {
-        parts[..parts.len()-1].join("/")
+        parts[..parts.len() - 1].join("/")
     } else {
-        config.root_folder_id.clone().unwrap_or_else(|| "0".to_string())
+        config
+            .root_folder_id
+            .clone()
+            .unwrap_or_else(|| "0".to_string())
     };
 
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
-    
+
     let body = serde_json::json!({
         "catalogID": parent_path,
         "sortType": 1,
@@ -242,21 +289,36 @@ async fn download_family(
     let mut found_id: Option<String> = None;
     let mut found_path: Option<String> = None;
 
-    if let Some(catalog_list) = resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+    if let Some(catalog_list) = resp
+        .pointer("/data/cloudCatalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = cat.get("catalogID").and_then(|v| v.as_str()).map(|s| s.to_string());
+                found_id = cat
+                    .get("catalogID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 break;
             }
         }
     }
 
     if found_id.is_none() {
-        if let Some(content_list) = resp.pointer("/data/cloudContentList").and_then(|v| v.as_array()) {
+        if let Some(content_list) = resp
+            .pointer("/data/cloudContentList")
+            .and_then(|v| v.as_array())
+        {
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                    found_id = content.get("contentID").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    found_path = resp.pointer("/data/path").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    found_id = content
+                        .get("contentID")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    found_path = resp
+                        .pointer("/data/path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     break;
                 }
             }
@@ -271,7 +333,10 @@ async fn download_family(
         }
     };
 
-    if let Some(catalog_list) = resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+    if let Some(catalog_list) = resp
+        .pointer("/data/cloudCatalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
                 error!("不支持下载目录，请使用 ls 命令查看目录内容");
@@ -282,8 +347,9 @@ async fn download_family(
 
     let path = found_path.unwrap_or_else(|| parent_path.clone());
 
-    let download_url = crate::client::api::get_family_download_link(config, &content_id, &path).await?;
-    
+    let download_url =
+        crate::client::api::get_family_download_link(config, &content_id, &path).await?;
+
     if download_url.is_empty() {
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
@@ -314,13 +380,13 @@ async fn download_group(
 
     let file_name = parts.last().unwrap();
     let parent_path = if parts.len() > 1 {
-        parts[..parts.len()-1].join("/")
+        parts[..parts.len() - 1].join("/")
     } else {
         "0".to_string()
     };
 
     let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
-    
+
     let body = serde_json::json!({
         "groupID": config.cloud_id,
         "catalogID": parent_path,
@@ -337,22 +403,40 @@ async fn download_group(
     let mut found_id: Option<String> = None;
     let mut found_path: Option<String> = None;
 
-    if let Some(catalog_list) = resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+    if let Some(catalog_list) = resp
+        .pointer("/data/getGroupContentResult/catalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = cat.get("catalogID").and_then(|v| v.as_str()).map(|s| s.to_string());
-                found_path = cat.get("path").and_then(|v| v.as_str()).map(|s| s.to_string());
+                found_id = cat
+                    .get("catalogID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                found_path = cat
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 break;
             }
         }
     }
 
     if found_id.is_none() {
-        if let Some(content_list) = resp.pointer("/data/getGroupContentResult/contentList").and_then(|v| v.as_array()) {
+        if let Some(content_list) = resp
+            .pointer("/data/getGroupContentResult/contentList")
+            .and_then(|v| v.as_array())
+        {
             for content in content_list {
                 if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                    found_id = content.get("contentID").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    found_path = resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    found_id = content
+                        .get("contentID")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    found_path = resp
+                        .pointer("/data/getGroupContentResult/parentCatalogID")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     break;
                 }
             }
@@ -367,7 +451,10 @@ async fn download_group(
         }
     };
 
-    if let Some(catalog_list) = resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+    if let Some(catalog_list) = resp
+        .pointer("/data/getGroupContentResult/catalogList")
+        .and_then(|v| v.as_array())
+    {
         for cat in catalog_list {
             if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
                 error!("不支持下载目录，请使用 ls 命令查看目录内容");
@@ -378,8 +465,9 @@ async fn download_group(
 
     let path = found_path.unwrap_or_else(|| format!("root:/{}", parent_path));
 
-    let download_url = crate::client::api::get_group_download_link(config, &content_id, &path).await?;
-    
+    let download_url =
+        crate::client::api::get_group_download_link(config, &content_id, &path).await?;
+
     if download_url.is_empty() {
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
