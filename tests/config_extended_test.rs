@@ -40,25 +40,24 @@ mod config_test_extended {
             user_domain_id: None,
         };
 
-        let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("test@139.com"));
-        assert!(json.contains("personal_new"));
+        let toml_str = toml::to_string(&config).unwrap();
+        assert!(toml_str.contains("test@139.com"));
+        assert!(toml_str.contains("personal_new"));
     }
 
     #[test]
     fn test_config_deserialize() {
-        let json = r#"{
-            "authorization": "Basic dGVzdA==",
-            "account": "test@139.com",
-            "storage_type": "personal_new",
-            "cloud_id": "cloud123",
-            "custom_upload_part_size": 0,
-            "report_real_size": true,
-            "use_large_thumbnail": false,
-            "personal_cloud_host": "https://test.com"
-        }"#;
+        let toml_str = r#"authorization = "Basic dGVzdA=="
+account = "test@139.com"
+storage_type = "personal_new"
+cloud_id = "cloud123"
+custom_upload_part_size = 0
+report_real_size = true
+use_large_thumbnail = false
+personal_cloud_host = "https://test.com"
+"#;
 
-        let config: Config = serde_json::from_str(json).unwrap();
+        let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.account, "test@139.com");
         assert_eq!(config.storage_type, "personal_new");
         assert_eq!(config.cloud_id, Some("cloud123".to_string()));
@@ -66,22 +65,21 @@ mod config_test_extended {
 
     #[test]
     fn test_config_deserialize_with_optional_fields() {
-        let json = r#"{
-            "authorization": "Basic dGVzdA==",
-            "account": "test@139.com",
-            "storage_type": "family",
-            "cloud_id": "cloud123",
-            "custom_upload_part_size": 1048576,
-            "report_real_size": false,
-            "use_large_thumbnail": true,
-            "personal_cloud_host": "https://test.com",
-            "refresh_token": "token123",
-            "token_expire_time": 1234567890,
-            "root_folder_id": "root",
-            "user_domain_id": "domain123"
-        }"#;
+        let toml_str = r#"authorization = "Basic dGVzdA=="
+account = "test@139.com"
+storage_type = "family"
+cloud_id = "cloud123"
+custom_upload_part_size = 1048576
+report_real_size = false
+use_large_thumbnail = true
+personal_cloud_host = "https://test.com"
+refresh_token = "token123"
+token_expire_time = 1234567890
+root_folder_id = "root"
+user_domain_id = "domain123"
+"#;
 
-        let config: Config = serde_json::from_str(json).unwrap();
+        let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.refresh_token, Some("token123".to_string()));
         assert_eq!(config.token_expire_time, Some(1234567890));
         assert_eq!(config.root_folder_id, Some("root".to_string()));
@@ -93,7 +91,7 @@ mod config_test_extended {
     #[test]
     fn test_config_config_path() {
         let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("cloud139.json"));
+        assert!(path.to_string_lossy().contains("cloud139.toml"));
     }
 
     #[test]
@@ -101,7 +99,7 @@ mod config_test_extended {
         // Use an explicit invalid path by temporarily changing behavior
         // The config_path() is hardcoded, so we just verify it returns a valid path
         let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("cloud139.json"));
+        assert!(path.to_string_lossy().contains("cloud139.toml"));
     }
 
     #[test]
@@ -173,10 +171,9 @@ mod config_test_extended {
     }
 
     #[test]
-    fn test_config_error_display_json() {
-        let err =
-            ConfigError::Json(serde_json::from_str::<serde_json::Value>("invalid").unwrap_err());
-        assert!(err.to_string().contains("JSON"));
+    fn test_config_error_display_toml() {
+        let err = ConfigError::TomlDe(toml::from_str::<toml::Value>("invalid").unwrap_err());
+        assert!(err.to_string().contains("TOML"));
     }
 
     #[test]
@@ -194,9 +191,9 @@ mod config_test_extended {
     }
 
     #[test]
-    fn test_config_error_from_json() {
-        let json_err = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err();
-        let config_err: ConfigError = json_err.into();
-        assert!(matches!(config_err, ConfigError::Json(_)));
+    fn test_config_error_from_toml() {
+        let toml_err = toml::from_str::<toml::Value>("invalid").unwrap_err();
+        let config_err: ConfigError = toml_err.into();
+        assert!(matches!(config_err, ConfigError::TomlDe(_)));
     }
 }

@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 fn create_temp_dir() -> (TempDir, PathBuf) {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("cloud139.json");
+    let config_path = temp_dir.path().join("cloud139.toml");
     (temp_dir, config_path)
 }
 
@@ -22,12 +22,12 @@ fn test_config_load_not_found() {
 }
 
 #[test]
-fn test_config_load_invalid_json() {
+fn test_config_load_invalid_toml() {
     let (_temp_dir, config_path) = create_temp_dir();
-    fs::write(&config_path, "invalid json").unwrap();
+    fs::write(&config_path, "invalid toml").unwrap();
 
     let result = fs::read_to_string(&config_path).unwrap();
-    let config: Result<Config, _> = serde_json::from_str(&result);
+    let config: Result<Config, _> = toml::from_str(&result);
     assert!(config.is_err());
 }
 
@@ -50,10 +50,10 @@ fn test_config_save_and_load() {
         user_domain_id: Some("domain123".to_string()),
     };
 
-    let content = serde_json::to_string_pretty(&config).unwrap();
+    let content = toml::to_string_pretty(&config).unwrap();
     fs::write(&config_path, content).unwrap();
 
-    let loaded: Config = serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    let loaded: Config = toml::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
 
     assert_eq!(loaded.authorization, "test_auth");
     assert_eq!(loaded.account, "test_account");
@@ -167,5 +167,5 @@ fn test_default_values() {
 #[test]
 fn test_config_path_default() {
     let path = Config::config_path();
-    assert!(path.ends_with("cloud139.json"));
+    assert!(path.ends_with("cloud139.toml"));
 }

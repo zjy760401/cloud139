@@ -9,8 +9,10 @@ use crate::client::StorageType;
 pub enum ConfigError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
+    #[error("TOML error: {0}")]
+    TomlDe(#[from] toml::de::Error),
+    #[error("TOML serialize error: {0}")]
+    TomlSer(#[from] toml::ser::Error),
     #[error("Config not found")]
     NotFound,
 }
@@ -65,7 +67,7 @@ impl Default for Config {
 
 impl Config {
     pub fn config_path() -> PathBuf {
-        PathBuf::from("./cloud139.json")
+        PathBuf::from("./cloud139.toml")
     }
 
     pub fn load() -> Result<Self, ConfigError> {
@@ -74,7 +76,7 @@ impl Config {
             return Err(ConfigError::NotFound);
         }
         let content = fs::read_to_string(&path)?;
-        let config: Config = serde_json::from_str(&content)?;
+        let config: Config = toml::from_str(&content)?;
         Ok(config)
     }
 
@@ -83,7 +85,7 @@ impl Config {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let content = serde_json::to_string_pretty(self)?;
+        let content = toml::to_string_pretty(self)?;
         fs::write(&path, content)?;
         Ok(())
     }

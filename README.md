@@ -290,25 +290,23 @@ cloud139 rename /folder/old newname
 
 ## 配置文件
 
-登录成功后，配置信息会保存在 `cloud139.json` 文件中。
+登录成功后，配置信息会保存在 `cloud139.toml` 文件中。
 
 ### 配置文件结构
 
-```json
-{
-  "authorization": "...",
-  "account": "13800138000",
-  "storage_type": "personal_new",
-  "cloud_id": null,
-  "custom_upload_part_size": 0,
-  "report_real_size": true,
-  "use_large_thumbnail": false,
-  "personal_cloud_host": "https://personal-kd-njs.yun.139.com/hcy",
-  "refresh_token": "...",
-  "token_expire_time": 1775454807088,
-  "root_folder_id": null,
-  "user_domain_id": null
-}
+```toml
+authorization = "..."
+account = "13800138000"
+storage_type = "personal_new"
+cloud_id = null
+custom_upload_part_size = 0
+report_real_size = true
+use_large_thumbnail = false
+personal_cloud_host = "https://personal-kd-njs.yun.139.com/hcy"
+refresh_token = "..."
+token_expire_time = 1775454807088
+root_folder_id = null
+user_domain_id = null
 ```
 
 ### 字段说明
@@ -334,7 +332,7 @@ cloud139 rename /folder/old newname
 cloud139/
 ├── Cargo.toml           # 项目配置
 ├── LICENSE              # MIT 许可证
-├── cloud139.json        # 配置文件
+├── cloud139.toml        # 配置文件
 └── src/
     ├── main.rs          # 入口文件
     ├── lib.rs           # 库入口
