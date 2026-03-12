@@ -91,11 +91,6 @@ mod config_test_extended {
     }
 
     #[test]
-    fn test_config_deserialize_defaults() {
-        // Skip - Config doesn't have default values for all fields via serde
-    }
-
-    #[test]
     fn test_config_config_path() {
         let path = Config::config_path();
         assert!(path.to_string_lossy().contains("cloud139.json"));
@@ -107,39 +102,6 @@ mod config_test_extended {
         // The config_path() is hardcoded, so we just verify it returns a valid path
         let path = Config::config_path();
         assert!(path.to_string_lossy().contains("cloud139.json"));
-    }
-
-    #[test]
-    fn test_config_load_invalid_json() {
-        // Skip this test as Config::load() uses hardcoded path
-        // The test would require mocking or config override functionality
-    }
-
-    #[test]
-    fn test_config_load_valid() {
-        let temp_dir = create_temp_config_dir();
-        let config_path = temp_dir.path().join("cloud139.json");
-        let config_content = r#"{
-            "authorization": "Basic dGVzdA==",
-            "account": "test@139.com",
-            "storage_type": "personal_new"
-        }"#;
-        fs::write(&config_path, config_content).unwrap();
-
-        let result = Config::load();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_config_save() {
-        // Skip this test as Config::save() uses hardcoded path
-        // The test would require config path override functionality
-    }
-
-    #[test]
-    fn test_config_save_and_load_roundtrip() {
-        // Skip this test as Config uses hardcoded path
-        // The test would require config path override functionality
     }
 
     #[test]

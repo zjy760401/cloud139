@@ -132,12 +132,6 @@ mod utils_test_extended {
     }
 
     #[test]
-    fn test_pkcs7_unpad() {
-        // This test depends on the actual implementation
-        // Skip to avoid false failures due to implementation differences
-    }
-
-    #[test]
     fn test_encode_uri_component_alphanumeric() {
         assert_eq!(encode_uri_component("abc123"), "abc123");
     }
