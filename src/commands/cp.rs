@@ -2,7 +2,7 @@ use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchCopyResp;
 use crate::{error, success, warn};
 use clap::Parser;
-use log::info;
+use crate::info;
 
 #[derive(Parser, Debug)]
 pub struct CpArgs {

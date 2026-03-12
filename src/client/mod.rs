@@ -5,6 +5,8 @@ pub mod auth;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::info;
+
 const KEY_HEX_1: &str = "73634235495062495331515373756c734e7253306c673d3d";
 
 #[derive(Error, Debug)]
@@ -115,7 +117,7 @@ impl Client {
 
     pub async fn refresh_token_if_needed(&mut self) -> Result<(), ClientError> {
         if self.config.is_token_expired() {
-            log::info!("Token expired, refreshing...");
+            info!("Token expired, refreshing...");
             let new_config = auth::refresh_token(&self.config).await?;
             new_config.save()?;
             self.config = new_config;

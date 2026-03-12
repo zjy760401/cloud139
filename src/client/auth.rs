@@ -1,13 +1,16 @@
 use crate::client::ClientError;
 use crate::config::Config;
 use serde::Deserialize;
+use crate::{info,warn};
+
+
 
 pub async fn login(
     token: &str,
     storage_type: &str,
     cloud_id: Option<&str>,
 ) -> Result<Config, ClientError> {
-    log::info!("Validating token...");
+    info!("Validating token...");
 
     let (account, token_info, expire_time) = parse_token(token)?;
 
@@ -61,10 +64,10 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
 }
 
 pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
-    log::info!("Refreshing token for account: {}", config.account);
+    info!("Refreshing token for account: {}", config.account);
 
     if let Err(e) = check_token_expiration(config) {
-        log::warn!("Token may be expired or invalid: {}", e);
+        warn!("Token may be expired or invalid: {}", e);
         return Err(ClientError::TokenExpired);
     }
 

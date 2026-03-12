@@ -337,7 +337,6 @@ dependencies = [
  "generic-array",
  "hex",
  "httpmock",
- "log",
  "md-5",
  "mockall",
  "quick-xml",
