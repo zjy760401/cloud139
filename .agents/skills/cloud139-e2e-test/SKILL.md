@@ -252,7 +252,7 @@ rm -rf cloud139_e2e_download_test
 ./target/release/cloud139 rm /e2e_test_xxx --yes
 ./target/release/cloud139 rm /README.md --yes
 ./target/release/cloud139 rm /Cargo.toml --yes
-./target/release/cloud139 rm /e2e_random_*.bin --yes
+./target/release/cloud139 rm /e2e_random_{timestamp}.bin --yes
 ```
 
 ### 5. 生成报告
