@@ -397,26 +397,21 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             .cloned()
             .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
-        headers.insert("Content-Length", read_size.to_string().parse().unwrap());
-        headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-        headers.insert("Referer", "https://yun.139.com/".parse().unwrap());
+        let resp_code = tokio::task::spawn_blocking(move || {
+            ureq::put(&upload_url)
+                .header("Content-Type", "application/octet-stream")
+                .send(&buffer[..bytes_read])
+                .map(|resp| resp.status().as_u16() as u32)
+                .unwrap_or_else(|e| {
+                    error!("上传失败: {}", e);
+                    0
+                })
+        })
+        .await
+        .map_err(|e| ClientError::Api(format!("上传任务失败: {}", e)))?;
 
-        let client = reqwest::Client::new();
-        let resp = client
-            .put(upload_url)
-            .headers(headers)
-            .body(buffer)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            return Err(ClientError::Api(format!(
-                "分片 {} 上传失败: {}",
-                part_number,
-                resp.status()
-            )));
+        if resp_code != 200 {
+            return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp_code)));
         }
     }
 
