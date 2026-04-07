@@ -1,6 +1,6 @@
 # cloud139
 
-139云盘（移动云盘）命令行客户端，支持文件上传、下载、管理等操作。
+139云盘（移动云盘）命令行客户端，支持文件上传、下载、同步、管理等操作。
 
 > 注意：当前仅实现了个人云功能，不支持家庭云/和家亲/群组。
 
@@ -9,6 +9,16 @@
 - 账号登录
 - 文件列表查看
 - 文件上传/下载
+- **文件夹同步**（本地 ↔ 远程双向同步）
+  - 支持仅上传、仅下载、双向同步三种模式
+  - 并行上传/下载，可配置并行数
+  - 实时进度条，显示传输速度和当前任务
+  - macOS 自动排除系统隐藏文件（`.DS_Store`、`._*`、`.localized` 等）
+  - 远程目录不存在时自动递归创建
+  - 交互式冲突解决菜单
+  - 失败文件收集与最终报告
+  - 多网卡负载均衡（`--multi-net`）
+  - 预览模式（`--dry-run`）
 - 文件删除
 - 目录创建
 - 文件移动
@@ -84,6 +94,34 @@ cloud139 cp /remote/source/file.txt /remote/destination
 # 重命名
 # rename [远程文件路径] [新文件名]
 cloud139 rename /remote/oldname.txt newname.txt
+```
+
+### 同步文件夹
+
+```bash
+# 双向同步（交互式选择操作）
+cloud139 sync ~/local/folder /remote/folder
+
+# 仅上传本地文件到远程
+cloud139 sync ~/local/folder /remote/folder --upload-only
+
+# 仅从远程下载到本地
+cloud139 sync ~/local/folder /remote/folder --download-only
+
+# 双向完全同步
+cloud139 sync ~/local/folder /remote/folder --two-way
+
+# 指定并行数为 2
+cloud139 sync ~/local/folder /remote/folder -j 2
+
+# 排除特定文件
+cloud139 sync ~/local/folder /remote/folder --exclude "*.tmp" --exclude "node_modules"
+
+# 预览模式（不实际传输）
+cloud139 sync ~/local/folder /remote/folder --dry-run
+
+# 启用多网卡负载均衡
+cloud139 sync ~/local/folder /remote/folder --multi-net
 ```
 
 ## 全局选项
@@ -305,6 +343,74 @@ cloud139 rename /oldname.txt newname.txt
 cloud139 rename /folder/old newname
 ```
 
+### sync
+
+同步本地文件夹与云盘文件夹。支持双向同步、仅上传、仅下载三种模式，提供并行传输、实时进度条、交互式冲突解决等功能。
+
+```bash
+cloud139 sync [OPTIONS] <本地路径> <远程路径>
+```
+
+**参数说明：**
+
+| 参数 | 简写 | 必填 | 说明 |
+|------|------|------|------|
+| 本地路径 | - | 是 | 本地文件夹路径 |
+| 远程路径 | - | 是 | 远程文件夹路径（不存在时自动递归创建） |
+| --upload-only | - | 否 | 仅上传模式（本地 → 远程） |
+| --download-only | - | 否 | 仅下载模式（远程 → 本地） |
+| --two-way | - | 否 | 双向完全同步 |
+| --exclude | - | 否 | 排除匹配的文件/目录（支持通配符，可多次指定） |
+| --dry-run | - | 否 | 仅显示将要执行的操作，不实际传输 |
+| --concurrency | -j | 否 | 并行上传/下载数，默认 4 |
+| --multi-net | - | 否 | 启用多网卡负载均衡（自动探测可用网卡并分流） |
+
+**同步模式：**
+
+不指定模式参数时，会逐个文件交互式选择操作：
+
+| 选项 | 说明 |
+|------|------|
+| 始终只下载（本地 ← 远程） | 后续所有差异文件都从远程下载到本地 |
+| 始终只上传（本地 → 远程） | 后续所有差异文件都从本地上传到远程 |
+| 始终同步（本地 ↔ 远程） | 后续所有差异文件双向同步 |
+| 下载（本地 ← 远程） | 仅当前文件从远程下载 |
+| 上传（本地 → 远程） | 仅当前文件上传到远程 |
+| 跳过此文件 | 不处理当前文件 |
+
+**macOS 自动排除：**
+
+在 macOS 上运行时，自动排除以下系统隐藏文件：
+
+`.DS_Store`、`._*`、`.Spotlight-V100`、`.Trashes`、`.fseventsd`、`__MACOSX`、`.TemporaryItems`、`.AppleDouble`、`.LSOverride`、`.DocumentRevisions-V100`、`.VolumeIcon.icns`、`.localized`、`Icon\r`
+
+**多网卡负载均衡（`--multi-net`）：**
+
+启用后，程序会自动：
+
+1. 探测本机所有可用的 IPv4 网卡
+2. 逐一测试每块网卡的外网连通性（通过 ifconfig.me）
+3. 根据出口 IP 去重（避免同一出口重复添加）
+4. 以文件为单位进行 round-robin 分流，充分利用多条网络带宽
+
+适用于同时连接 WiFi + 有线、或有多块有线网卡的场景。
+
+**示例：**
+
+```bash
+# 基本同步
+cloud139 sync ~/Photos /云盘备份/Photos
+
+# 仅上传，2 并行
+cloud139 sync ~/Documents /备份 --upload-only -j 2
+
+# 多网卡负载均衡 + 预览
+cloud139 sync ~/Data /remote/data --multi-net --dry-run
+
+# 排除特定文件后同步
+cloud139 sync ~/project /backup --exclude "target" --exclude "*.log"
+```
+
 ## 配置文件
 
 登录成功后，配置信息会保存在 `cloud139.toml` 文件中。
@@ -367,6 +473,7 @@ cloud139/
     │   ├── mv.rs
     │   ├── cp.rs
     │   ├── rename.rs
+    │   ├── sync.rs      # 文件夹同步（含并行传输、进度条、多网卡负载均衡）
     │   └── mod.rs
     ├── config/          # 配置管理
     │   └── mod.rs
@@ -384,13 +491,15 @@ cloud139/
 
 - [Rust](https://www.rust-lang.org/) - 编程语言
 - [clap](https://docs.rs/clap/) - CLI 参数解析
-- [reqwest](https://docs.rs/reqwest/) - HTTP 客户端
+- [reqwest](https://docs.rs/reqwest/) - HTTP 客户端（支持流式上传）
 - [tokio](https://tokio.rs/) - 异步运行时
 - [serde](https://serde.rs/) - 序列化/反序列化
+- [indicatif](https://docs.rs/indicatif/) - 终端进度条
+- [dialoguer](https://docs.rs/dialoguer/) - 交互式终端菜单
+- [futures-util](https://docs.rs/futures-util/) - 异步流工具
 - [aes-gcm](https://docs.rs/aes-gcm/) - 加密
 - [chrono](https://chrono.rs/) - 日期时间处理
 - [directories](https://docs.rs/directories/) - 目录路径处理
-- [env_logger](https://docs.rs/env_logger/) - 日志输出
 
 ## 许可证
 
