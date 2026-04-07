@@ -189,6 +189,10 @@ impl NetClientPool {
     pub fn len(&self) -> usize {
         self.clients.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.clients.is_empty()
+    }
 }
 
 /// 枚举所有活跃的非 loopback IPv4 网卡地址
@@ -210,26 +214,22 @@ fn detect_local_ipv4_addresses() -> Vec<(String, std::net::Ipv4Addr)> {
 
     for line in text.lines() {
         // 网卡头行: "en0: flags=8863<UP,...>"
-        if !line.starts_with('\t') && !line.starts_with(' ') {
-            if let Some(colon_pos) = line.find(':') {
+        if !line.starts_with('\t') && !line.starts_with(' ')
+            && let Some(colon_pos) = line.find(':') {
                 current_iface = line[..colon_pos].to_string();
                 is_up = line.contains("UP");
                 is_loopback = line.contains("LOOPBACK");
             }
-        }
 
         // inet 行: "\tinet 192.168.1.100 netmask ..."
         if is_up && !is_loopback && line.contains("inet ") && !line.contains("inet6") {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if let Some(idx) = parts.iter().position(|&s| s == "inet") {
-                if let Some(ip_str) = parts.get(idx + 1) {
-                    if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
-                        if !ip.is_loopback() && !ip.is_link_local() {
+            if let Some(idx) = parts.iter().position(|&s| s == "inet")
+                && let Some(ip_str) = parts.get(idx + 1)
+                    && let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>()
+                        && !ip.is_loopback() && !ip.is_link_local() {
                             results.push((current_iface.clone(), ip));
                         }
-                    }
-                }
-            }
         }
     }
 
@@ -1294,6 +1294,7 @@ async fn upload_file_personal(
 }
 
 /// 分片上传（PersonalNew）— 使用 reqwest 异步流式上传，支持实时进度
+#[allow(clippy::too_many_arguments)]
 async fn upload_parts_personal(
     config: &crate::config::Config,
     host: &str,
@@ -1757,7 +1758,7 @@ async fn execute_personal(
                 cached.clone()
             } else {
                 let id =
-                    ensure_remote_dir_personal(&config, &host, &remote_base_id, &parent_rel)
+                    ensure_remote_dir_personal(config, &host, &remote_base_id, &parent_rel)
                         .await?;
                 dir_id_cache.insert(parent_rel.clone(), id.clone());
                 id

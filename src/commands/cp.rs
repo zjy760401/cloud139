@@ -192,8 +192,8 @@ async fn cp_group(
         }
     }
 
-    if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp
+    if !is_dir && found_id.is_empty()
+        && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
         {
@@ -213,7 +213,6 @@ async fn cp_group(
                 }
             }
         }
-    }
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");

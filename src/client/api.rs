@@ -441,20 +441,16 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
         })
         .unwrap_or_default();
 
-    if path.is_empty() {
-        if let Some(catalog_list) = resp
+    if path.is_empty()
+        && let Some(catalog_list) = resp
             .pointer("/data/cloudCatalogList")
             .and_then(|v| v.as_array())
-        {
-            if let Some(first) = catalog_list.first() {
-                if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
+            && let Some(first) = catalog_list.first()
+                && let Some(p) = first.get("path").and_then(|v| v.as_str()) {
                     let p = p.trim_start_matches("root:/");
                     let p = p.trim_start_matches("root:");
                     return Ok(p.to_string());
                 }
-            }
-        }
-    }
 
     Ok(path)
 }
@@ -484,22 +480,17 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
     if let Some(parent_catalog_id) = resp
         .pointer("/data/getGroupContentResult/parentCatalogID")
         .and_then(|v| v.as_str())
-    {
-        if !parent_catalog_id.is_empty() {
+        && !parent_catalog_id.is_empty() {
             return Ok(parent_catalog_id.to_string());
         }
-    }
 
     if let Some(catalog_list) = resp
         .pointer("/data/getGroupContentResult/catalogList")
         .and_then(|v| v.as_array())
-    {
-        if let Some(first) = catalog_list.first() {
-            if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
+        && let Some(first) = catalog_list.first()
+            && let Some(p) = first.get("path").and_then(|v| v.as_str()) {
                 return Ok(p.to_string());
             }
-        }
-    }
 
     Err(ClientError::Other(
         "Failed to get group root path".to_string(),

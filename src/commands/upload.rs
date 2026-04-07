@@ -219,7 +219,7 @@ async fn upload_personal(
             })
             .await?;
 
-            if file_name_val.as_deref() != Some(&file_name) {
+            if file_name_val.as_deref() != Some(file_name) {
                 warn!(
                     "检测到文件名冲突: {} != {}",
                     file_name_val.as_deref().unwrap_or(""),
@@ -230,7 +230,7 @@ async fn upload_personal(
                 let files =
                     crate::client::api::list_personal_files(&config, &parent_file_id).await?;
                 for file in &files {
-                    if file.name.as_deref() == Some(&file_name) {
+                    if file.name.as_deref() == Some(file_name) {
                         step!("冲突处理: 先重命名旧文件避免冲突");
                         let old_name = format!(
                             "{}_{}",

@@ -218,8 +218,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
             for cat in &resp.data.cloud_catalog_list {
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "d",
+                    "d {} {:>15} {:<20}",
                     pad_with_width(&cat.catalog_name, 38),
                     "-",
                     cat.last_update_time
@@ -235,8 +234,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             for content in &resp.data.cloud_content_list {
                 let size = format_size(content.content_size);
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "-",
+                    "- {} {:>15} {:<20}",
                     pad_with_width(&content.content_name, 38),
                     size,
                     content.last_update_time
@@ -317,8 +315,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
             for cat in &resp.data.get_group_content_result.catalog_list {
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "d",
+                    "d {} {:>15} {:<20}",
                     pad_with_width(&cat.catalog_name, 38),
                     "-",
                     cat.update_time
@@ -334,8 +331,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             for content in &resp.data.get_group_content_result.content_list {
                 let size = format_size(content.content_size);
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "-",
+                    "- {} {:>15} {:<20}",
                     pad_with_width(&content.content_name, 38),
                     size,
                     content.update_time

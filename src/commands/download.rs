@@ -23,10 +23,10 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
                 || ends_with_slash
                 || (!path.contains('.')
                     && !path.ends_with(".txt")
-                    && !path_obj.extension().is_some())
+                    && path_obj.extension().is_none())
             {
                 let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-                let file_name = parts.first().copied().unwrap_or_else(|| remote_path);
+                let file_name = parts.first().copied().unwrap_or(remote_path);
                 if file_name.is_empty() || file_name == remote_path {
                     format!("{}/download", path)
                 } else {
@@ -38,7 +38,7 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
         }
         _ => {
             let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-            let file_name = parts.first().copied().unwrap_or_else(|| remote_path);
+            let file_name = parts.first().copied().unwrap_or(remote_path);
             if file_name.is_empty() || file_name == remote_path {
                 "download".to_string()
             } else {
@@ -62,13 +62,13 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
                 || ends_with_slash
                 || (!path.contains('.')
                     && !path.ends_with(".txt")
-                    && !path_obj.extension().is_some())
+                    && path_obj.extension().is_none())
             {
                 let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
                 let file_name = parts
                     .first()
                     .copied()
-                    .unwrap_or_else(|| remote_path.as_str());
+                    .unwrap_or(remote_path.as_str());
                 if file_name.is_empty() || file_name == remote_path {
                     format!("{}/download", path)
                 } else {
@@ -83,7 +83,7 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
             let file_name = parts
                 .first()
                 .copied()
-                .unwrap_or_else(|| remote_path.as_str());
+                .unwrap_or(remote_path.as_str());
             if file_name.is_empty() || file_name == remote_path {
                 "download".to_string()
             } else {
@@ -152,20 +152,17 @@ async fn download_personal(
     )
     .await?;
 
-    if let Some(items) = list_resp.data.map(|d| d.items) {
-        if let Some(item) = items
+    if let Some(items) = list_resp.data.map(|d| d.items)
+        && let Some(item) = items
             .iter()
             .find(|item| item.name.as_deref() == Some(file_name))
-        {
-            if item.file_type.as_deref() == Some("1")
+            && (item.file_type.as_deref() == Some("1")
                 || item.file_type.as_deref() == Some("folder")
-                || item.file_type.as_deref() == Some("dir")
+                || item.file_type.as_deref() == Some("dir"))
             {
                 error!("不支持下载目录，请使用 ls 命令查看目录内容");
                 return Err(ClientError::UnsupportedDownloadDirectory);
             }
-        }
-    }
 
     let url = format!("{}/file/getDownloadUrl", host);
 
@@ -198,7 +195,7 @@ async fn download_personal(
             parts
                 .first()
                 .copied()
-                .unwrap_or_else(|| remote_path)
+                .unwrap_or(remote_path)
                 .to_string()
         });
         let file_path = local_path_obj.join(&file_name);
@@ -304,8 +301,8 @@ async fn download_family(
         }
     }
 
-    if found_id.is_none() {
-        if let Some(content_list) = resp
+    if found_id.is_none()
+        && let Some(content_list) = resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
         {
@@ -323,7 +320,6 @@ async fn download_family(
                 }
             }
         }
-    }
 
     let content_id = match found_id {
         Some(id) => id,
@@ -422,8 +418,8 @@ async fn download_group(
         }
     }
 
-    if found_id.is_none() {
-        if let Some(content_list) = resp
+    if found_id.is_none()
+        && let Some(content_list) = resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
         {
@@ -441,7 +437,6 @@ async fn download_group(
                 }
             }
         }
-    }
 
     let content_id = match found_id {
         Some(id) => id,

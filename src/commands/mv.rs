@@ -210,8 +210,8 @@ async fn mv_family(
         }
     }
 
-    if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp
+    if !is_dir && found_id.is_empty()
+        && let Some(content_list) = list_resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
         {
@@ -231,7 +231,6 @@ async fn mv_family(
                 }
             }
         }
-    }
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
@@ -365,8 +364,8 @@ async fn mv_group(
         }
     }
 
-    if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp
+    if !is_dir && found_id.is_empty()
+        && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
         {
@@ -386,7 +385,6 @@ async fn mv_group(
                 }
             }
         }
-    }
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
