@@ -34,7 +34,12 @@ pub struct SyncArgs {
     #[arg(long, help = "仅显示将要执行的操作，不实际传输")]
     pub dry_run: bool,
 
-    #[arg(long, short = 'j', default_value = "4", help = "并行上传/下载数（默认: 4）")]
+    #[arg(
+        long,
+        short = 'j',
+        default_value = "4",
+        help = "并行上传/下载数（默认: 4）"
+    )]
     pub concurrency: usize,
 
     #[arg(long, help = "启用多网卡负载均衡（自动探测可用网卡并分流）")]
@@ -161,8 +166,7 @@ pub fn is_excluded(relative_path: &str, patterns: &[String]) -> bool {
     }
 
     for pattern in patterns {
-        if glob_match::glob_match(pattern, name) || glob_match::glob_match(pattern, relative_path)
-        {
+        if glob_match::glob_match(pattern, name) || glob_match::glob_match(pattern, relative_path) {
             return true;
         }
     }
@@ -182,7 +186,10 @@ pub struct NetClientPool {
 impl NetClientPool {
     /// 轮询获取下一个 Client
     pub fn next(&self) -> &reqwest::Client {
-        let idx = self.index.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % self.clients.len();
+        let idx = self
+            .index
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.clients.len();
         &self.clients[idx].1
     }
 
@@ -214,22 +221,26 @@ fn detect_local_ipv4_addresses() -> Vec<(String, std::net::Ipv4Addr)> {
 
     for line in text.lines() {
         // 网卡头行: "en0: flags=8863<UP,...>"
-        if !line.starts_with('\t') && !line.starts_with(' ')
-            && let Some(colon_pos) = line.find(':') {
-                current_iface = line[..colon_pos].to_string();
-                is_up = line.contains("UP");
-                is_loopback = line.contains("LOOPBACK");
-            }
+        if !line.starts_with('\t')
+            && !line.starts_with(' ')
+            && let Some(colon_pos) = line.find(':')
+        {
+            current_iface = line[..colon_pos].to_string();
+            is_up = line.contains("UP");
+            is_loopback = line.contains("LOOPBACK");
+        }
 
         // inet 行: "\tinet 192.168.1.100 netmask ..."
         if is_up && !is_loopback && line.contains("inet ") && !line.contains("inet6") {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if let Some(idx) = parts.iter().position(|&s| s == "inet")
                 && let Some(ip_str) = parts.get(idx + 1)
-                    && let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>()
-                        && !ip.is_loopback() && !ip.is_link_local() {
-                            results.push((current_iface.clone(), ip));
-                        }
+                && let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>()
+                && !ip.is_loopback()
+                && !ip.is_link_local()
+            {
+                results.push((current_iface.clone(), ip));
+            }
         }
     }
 
@@ -321,10 +332,7 @@ async fn build_multi_net_pool() -> Option<Arc<NetClientPool>> {
         clients.push((format!("{} ({})", iface, local_ip), client));
     }
 
-    success!(
-        "多网卡模式就绪: {} 个出口",
-        clients.len()
-    );
+    success!("多网卡模式就绪: {} 个出口", clients.len());
     for (desc, _) in &clients {
         info!("  {}", desc);
     }
@@ -344,9 +352,9 @@ pub fn scan_local_tree(
     root: &Path,
     exclude_patterns: &[String],
 ) -> Result<Vec<LocalFileEntry>, ClientError> {
-    let root = root.canonicalize().map_err(|e| {
-        ClientError::Other(format!("无法解析本地路径 {}: {}", root.display(), e))
-    })?;
+    let root = root
+        .canonicalize()
+        .map_err(|e| ClientError::Other(format!("无法解析本地路径 {}: {}", root.display(), e)))?;
     if !root.is_dir() {
         return Err(ClientError::Other(format!(
             "本地路径不是目录: {}",
@@ -1103,9 +1111,9 @@ async fn ensure_remote_root_personal(
 
     for part in &parts {
         let files = api::list_personal_files(config, &current_parent_id).await?;
-        let existing = files.iter().find(|f| {
-            f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder")
-        });
+        let existing = files
+            .iter()
+            .find(|f| f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder"));
 
         if let Some(dir) = existing {
             current_parent_id = dir.file_id.clone().unwrap_or_default();
@@ -1130,10 +1138,7 @@ async fn ensure_remote_root_personal(
                 )));
             }
 
-            current_parent_id = resp
-                .data
-                .and_then(|d| d.file_id)
-                .unwrap_or_default();
+            current_parent_id = resp.data.and_then(|d| d.file_id).unwrap_or_default();
 
             info!("已创建远程目录: {}", part);
         }
@@ -1158,9 +1163,9 @@ async fn ensure_remote_dir_personal(
 
     for part in &parts {
         let files = api::list_personal_files(config, &current_parent_id).await?;
-        let existing = files.iter().find(|f| {
-            f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder")
-        });
+        let existing = files
+            .iter()
+            .find(|f| f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder"));
 
         if let Some(dir) = existing {
             current_parent_id = dir.file_id.clone().unwrap_or_default();
@@ -1186,10 +1191,7 @@ async fn ensure_remote_dir_personal(
                 )));
             }
 
-            current_parent_id = resp
-                .data
-                .and_then(|d| d.file_id)
-                .unwrap_or_default();
+            current_parent_id = resp.data.and_then(|d| d.file_id).unwrap_or_default();
         }
     }
 
@@ -1209,10 +1211,10 @@ async fn upload_file_personal(
     let metadata = std::fs::metadata(local_file)?;
     let file_size = metadata.len() as i64;
 
-    let content_hash =
-        crate::utils::crypto::calc_file_sha256(local_file.to_str().unwrap_or(""))?;
+    let content_hash = crate::utils::crypto::calc_file_sha256(local_file.to_str().unwrap_or(""))?;
 
-    let part_size = crate::commands::upload::get_part_size(file_size, config.custom_upload_part_size);
+    let part_size =
+        crate::commands::upload::get_part_size(file_size, config.custom_upload_part_size);
     let mut part_count = (file_size + part_size - 1) / part_size;
     if part_count == 0 {
         part_count = 1;
@@ -1384,9 +1386,8 @@ async fn upload_parts_personal(
         let pb_clone = progress_bar.cloned();
 
         // Stream the buffer in 256KB chunks with real-time progress
-        let stream = futures_util::stream::unfold(
-            (0usize, buffer, pb_clone),
-            |(pos, buf, pb)| async move {
+        let stream =
+            futures_util::stream::unfold((0usize, buffer, pb_clone), |(pos, buf, pb)| async move {
                 if pos >= buf.len() {
                     return None;
                 }
@@ -1396,8 +1397,7 @@ async fn upload_parts_personal(
                     pb.inc((end - pos) as u64);
                 }
                 Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
-            },
-        );
+            });
 
         let resp = http_client
             .put(&upload_url)
@@ -1495,10 +1495,7 @@ pub async fn execute(args: SyncArgs) -> Result<(), ClientError> {
     // 未提供路径参数时显示帮助信息
     if args.local_path.is_none() || args.remote_path.is_none() {
         use clap::CommandFactory;
-        SyncArgs::command()
-            .name("cloud139 sync")
-            .print_help()
-            .ok();
+        SyncArgs::command().name("cloud139 sync").print_help().ok();
         println!();
         return Ok(());
     }
@@ -1507,13 +1504,10 @@ pub async fn execute(args: SyncArgs) -> Result<(), ClientError> {
     let remote_path = args.remote_path.as_ref().unwrap().clone();
 
     // Validate mutually exclusive flags
-    let mode_count =
-        args.upload_only as u8 + args.download_only as u8 + args.two_way as u8;
+    let mode_count = args.upload_only as u8 + args.download_only as u8 + args.two_way as u8;
     if mode_count > 1 {
         error!("--upload-only, --download-only, --two-way 三个参数互斥，只能指定一个");
-        return Err(ClientError::Other(
-            "同步模式参数互斥".to_string(),
-        ));
+        return Err(ClientError::Other("同步模式参数互斥".to_string()));
     }
 
     if args.concurrency == 0 {
@@ -1550,13 +1544,19 @@ pub async fn execute(args: SyncArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            execute_personal(&config, &args, sync_mode, &local_path, &remote_path, net_pool).await?;
+            execute_personal(
+                &config,
+                &args,
+                sync_mode,
+                &local_path,
+                &remote_path,
+                net_pool,
+            )
+            .await?;
         }
         _ => {
             error!("暂不支持该存储类型的同步功能，目前仅支持个人云 (PersonalNew)");
-            return Err(ClientError::Other(
-                "暂不支持该存储类型的同步".to_string(),
-            ));
+            return Err(ClientError::Other("暂不支持该存储类型的同步".to_string()));
         }
     }
 
@@ -1596,8 +1596,7 @@ async fn execute_personal(
     // Step 2: BFS 扫描远程并同时计算差异
     step!("扫描远程目录并计算差异: {}", remote_path);
     let (diffs, remote_entries, remote_file_count, remote_dir_count) =
-        scan_and_diff_bfs_personal(config, remote_path, &local_entries, &args.exclude)
-            .await?;
+        scan_and_diff_bfs_personal(config, remote_path, &local_entries, &args.exclude).await?;
     info!(
         "远程: {} 个文件, {} 个目录",
         remote_file_count, remote_dir_count
@@ -1688,7 +1687,10 @@ async fn execute_personal(
             };
             println!("  {} {}", action_str, diff.relative_path);
         }
-        let upload_count = actions.iter().filter(|(_, a)| *a == UserAction::Upload).count();
+        let upload_count = actions
+            .iter()
+            .filter(|(_, a)| *a == UserAction::Upload)
+            .count();
         let download_count = actions
             .iter()
             .filter(|(_, a)| *a == UserAction::Download)
@@ -1735,10 +1737,7 @@ async fn execute_personal(
 
     let total_transfer = upload_tasks.len() + download_tasks.len();
     if total_transfer == 0 {
-        success!(
-            "没有需要传输的文件 ({} 已跳过)",
-            skipped
-        );
+        success!("没有需要传输的文件 ({} 已跳过)", skipped);
         return Ok(());
     }
 
@@ -1758,8 +1757,7 @@ async fn execute_personal(
                 cached.clone()
             } else {
                 let id =
-                    ensure_remote_dir_personal(config, &host, &remote_base_id, &parent_rel)
-                        .await?;
+                    ensure_remote_dir_personal(config, &host, &remote_base_id, &parent_rel).await?;
                 dir_id_cache.insert(parent_rel.clone(), id.clone());
                 id
             };
@@ -1833,11 +1831,10 @@ async fn execute_personal(
     let mp = MultiProgress::new();
 
     // Overall progress bar
-    let overall_style = ProgressStyle::with_template(
-        "{prefix} [{bar:30.cyan/dim}] {pos}/{len} ({percent}%) {msg}",
-    )
-    .unwrap()
-    .progress_chars("█▓░");
+    let overall_style =
+        ProgressStyle::with_template("{prefix} [{bar:30.cyan/dim}] {pos}/{len} ({percent}%) {msg}")
+            .unwrap()
+            .progress_chars("█▓░");
 
     let overall_pb = mp.add(ProgressBar::new(total_transfer as u64));
     overall_pb.set_style(overall_style);
@@ -1890,12 +1887,16 @@ async fn execute_personal(
 
                 let local_file = local_root.join(&relative_path);
 
-                let result =
-                    upload_file_personal(
-                        &config, &host, &local_file, &parent_id, &file_name, Some(&pb),
-                        &http_client,
-                    )
-                    .await;
+                let result = upload_file_personal(
+                    &config,
+                    &host,
+                    &local_file,
+                    &parent_id,
+                    &file_name,
+                    Some(&pb),
+                    &http_client,
+                )
+                .await;
 
                 match result {
                     Ok(()) => {
@@ -1907,9 +1908,10 @@ async fn execute_personal(
                         let err_msg = e.to_string();
                         pb.abandon_with_message(format!("失败: {}", err_msg));
                         error_count.fetch_add(1, Ordering::Relaxed);
-                        failed_files.lock().unwrap().push(
-                            (format!("↑ {}", relative_path), err_msg),
-                        );
+                        failed_files
+                            .lock()
+                            .unwrap()
+                            .push((format!("↑ {}", relative_path), err_msg));
                     }
                 }
                 overall_pb.inc(1);
@@ -1960,7 +1962,8 @@ async fn execute_personal(
                 let local_file = local_root.join(&relative_path);
 
                 let result =
-                    download_file_personal(&config, &file_id, &local_file, Some(&pb), &http_client).await;
+                    download_file_personal(&config, &file_id, &local_file, Some(&pb), &http_client)
+                        .await;
 
                 match result {
                     Ok(()) => {
@@ -1971,9 +1974,10 @@ async fn execute_personal(
                         let err_msg = e.to_string();
                         pb.abandon_with_message(format!("失败: {}", err_msg));
                         error_count.fetch_add(1, Ordering::Relaxed);
-                        failed_files.lock().unwrap().push(
-                            (format!("↓ {}", relative_path), err_msg),
-                        );
+                        failed_files
+                            .lock()
+                            .unwrap()
+                            .push((format!("↓ {}", relative_path), err_msg));
                     }
                 }
                 overall_pb.inc(1);
@@ -2054,7 +2058,11 @@ mod tests {
 
     #[test]
     fn test_is_excluded_multiple_patterns() {
-        let patterns = vec![".*".to_string(), "*.log".to_string(), "node_modules".to_string()];
+        let patterns = vec![
+            ".*".to_string(),
+            "*.log".to_string(),
+            "node_modules".to_string(),
+        ];
         assert!(is_excluded(".gitignore", &patterns));
         assert!(is_excluded("app.log", &patterns));
         assert!(is_excluded("node_modules", &patterns));

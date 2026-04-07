@@ -1,6 +1,6 @@
+use aes::cipher::generic_array::GenericArray;
 use digest::Digest;
 use std::error::Error;
-use aes::cipher::generic_array::GenericArray;
 
 pub fn sha1_hash(data: &str) -> String {
     let mut hasher = sha1::Sha1::new();
@@ -17,8 +17,8 @@ pub fn md5_hash(data: &str) -> String {
 pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     use aes::Aes128;
     use cbc::{
-        cipher::{BlockEncryptMut, KeyIvInit},
         Encryptor,
+        cipher::{BlockEncryptMut, KeyIvInit},
     };
 
     type Aes128Cbc = Encryptor<Aes128>;
@@ -57,8 +57,8 @@ pub fn aes_cbc_decrypt(
 ) -> Result<Vec<u8>, Box<dyn Error>> {
     use aes::Aes128;
     use cbc::{
-        cipher::{BlockDecryptMut, KeyIvInit},
         Decryptor,
+        cipher::{BlockDecryptMut, KeyIvInit},
     };
 
     type Aes128Cbc = Decryptor<Aes128>;

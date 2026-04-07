@@ -134,27 +134,28 @@ async fn rename_family(
         }
     }
 
-    if !is_dir && found_id.is_empty()
+    if !is_dir
+        && found_id.is_empty()
         && let Some(content_list) = list_resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    found_path = list_resp
-                        .pointer("/data/path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = list_resp
+                    .pointer("/data/path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                break;
             }
         }
+    }
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");
@@ -260,27 +261,28 @@ async fn rename_group(
         }
     }
 
-    if !is_dir && found_id.is_empty()
+    if !is_dir
+        && found_id.is_empty()
         && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    found_path = list_resp
-                        .pointer("/data/getGroupContentResult/parentCatalogID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = list_resp
+                    .pointer("/data/getGroupContentResult/parentCatalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                break;
             }
         }
+    }
 
     if found_id.is_empty() {
         error!("错误: 文件不存在");

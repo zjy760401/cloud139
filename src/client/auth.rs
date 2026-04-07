@@ -1,9 +1,7 @@
 use crate::client::ClientError;
 use crate::config::Config;
+use crate::{info, warn};
 use serde::Deserialize;
-use crate::{info,warn};
-
-
 
 pub async fn login(
     token: &str,

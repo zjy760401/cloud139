@@ -417,7 +417,10 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
         .map_err(|e| ClientError::Api(format!("上传任务失败: {}", e)))?;
 
         if resp_code != 200 {
-            return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp_code)));
+            return Err(ClientError::Api(format!(
+                "分片 {} 上传失败: {}",
+                part_number, resp_code
+            )));
         }
     }
 

@@ -65,10 +65,7 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
                     && path_obj.extension().is_none())
             {
                 let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-                let file_name = parts
-                    .first()
-                    .copied()
-                    .unwrap_or(remote_path.as_str());
+                let file_name = parts.first().copied().unwrap_or(remote_path.as_str());
                 if file_name.is_empty() || file_name == remote_path {
                     format!("{}/download", path)
                 } else {
@@ -80,10 +77,7 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
         }
         _ => {
             let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-            let file_name = parts
-                .first()
-                .copied()
-                .unwrap_or(remote_path.as_str());
+            let file_name = parts.first().copied().unwrap_or(remote_path.as_str());
             if file_name.is_empty() || file_name == remote_path {
                 "download".to_string()
             } else {
@@ -156,13 +150,13 @@ async fn download_personal(
         && let Some(item) = items
             .iter()
             .find(|item| item.name.as_deref() == Some(file_name))
-            && (item.file_type.as_deref() == Some("1")
-                || item.file_type.as_deref() == Some("folder")
-                || item.file_type.as_deref() == Some("dir"))
-            {
-                error!("不支持下载目录，请使用 ls 命令查看目录内容");
-                return Err(ClientError::UnsupportedDownloadDirectory);
-            }
+        && (item.file_type.as_deref() == Some("1")
+            || item.file_type.as_deref() == Some("folder")
+            || item.file_type.as_deref() == Some("dir"))
+    {
+        error!("不支持下载目录，请使用 ls 命令查看目录内容");
+        return Err(ClientError::UnsupportedDownloadDirectory);
+    }
 
     let url = format!("{}/file/getDownloadUrl", host);
 
@@ -192,11 +186,7 @@ async fn download_personal(
     if local_path_obj.is_dir() {
         let file_name = resp.data.file_name.unwrap_or_else(|| {
             let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-            parts
-                .first()
-                .copied()
-                .unwrap_or(remote_path)
-                .to_string()
+            parts.first().copied().unwrap_or(remote_path).to_string()
         });
         let file_path = local_path_obj.join(&file_name);
         download_file(&download_url, &file_path).await?;
@@ -305,21 +295,21 @@ async fn download_family(
         && let Some(content_list) = resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    found_path = resp
-                        .pointer("/data/path")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                found_path = resp
+                    .pointer("/data/path")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                break;
             }
         }
+    }
 
     let content_id = match found_id {
         Some(id) => id,
@@ -422,21 +412,21 @@ async fn download_group(
         && let Some(content_list) = resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    found_path = resp
-                        .pointer("/data/getGroupContentResult/parentCatalogID")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                found_path = resp
+                    .pointer("/data/getGroupContentResult/parentCatalogID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                break;
             }
         }
+    }
 
     let content_id = match found_id {
         Some(id) => id,
