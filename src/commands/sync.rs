@@ -383,7 +383,7 @@ fn scan_local_recursive(
             .strip_prefix(base)
             .map_err(|e| ClientError::Other(e.to_string()))?
             .to_string_lossy()
-            .to_string();
+            .replace('\\', "/");
 
         if is_excluded(&relative, exclude_patterns) {
             continue;
@@ -675,7 +675,7 @@ fn build_local_dir_index(entries: &[LocalFileEntry]) -> LocalDirIndex {
     for entry in entries {
         let parent = Path::new(&entry.relative_path)
             .parent()
-            .map(|p| p.to_string_lossy().to_string())
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
             .unwrap_or_default();
 
         if entry.is_dir {
@@ -1750,7 +1750,7 @@ async fn execute_personal(
         for (_i, diff) in &upload_tasks {
             let parent_rel = Path::new(&diff.relative_path)
                 .parent()
-                .map(|p| p.to_string_lossy().to_string())
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
 
             let parent_id = if let Some(cached) = dir_id_cache.get(&parent_rel) {
