@@ -1812,7 +1812,7 @@ async fn execute_personal(
     }
 
     // --- Progress bar setup (all println! after this point must go through mp) ---
-    use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+    use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     let config = Arc::new(config.clone());
@@ -1828,7 +1828,11 @@ async fn execute_personal(
     });
     let client_index = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-    let mp = MultiProgress::new();
+    let mp = if crate::utils::logger::is_quiet() {
+        MultiProgress::with_draw_target(ProgressDrawTarget::hidden())
+    } else {
+        MultiProgress::new()
+    };
 
     // Overall progress bar
     let overall_style =
