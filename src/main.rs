@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use cloud139::commands::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
-use cloud139::error;
+use cloud139::utils::logger;
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
@@ -11,7 +11,12 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    #[arg(short, long, default_value = "info")]
+    #[arg(
+        short,
+        long,
+        default_value = "info",
+        help = "日志级别 (trace, debug, info, warn, error, off)"
+    )]
     verbose: String,
 }
 
@@ -41,9 +46,14 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
     let cli = Cli::parse();
+
+    if cli.verbose.eq_ignore_ascii_case("off") {
+        logger::set_quiet(true);
+    }
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&cli.verbose))
+        .init();
 
     let result = match cli.command {
         Commands::Login(args) => login::execute(args).await,
@@ -59,7 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if let Err(e) = result {
-        error!("{}", e);
+        if !logger::is_quiet() {
+            eprintln!("\x1b[31merror\x1b[0m {}", e);
+        }
         std::process::exit(1);
     }
 
