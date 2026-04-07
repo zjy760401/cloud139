@@ -1,6 +1,6 @@
 use digest::Digest;
-use generic_array::GenericArray;
 use std::error::Error;
+use aes::cipher::generic_array::GenericArray;
 
 pub fn sha1_hash(data: &str) -> String {
     let mut hasher = sha1::Sha1::new();
