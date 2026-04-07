@@ -21,7 +21,7 @@
 
 从 [GitHub Releases](https://github.com/Cnotech/cloud139/releases) 下载对应平台的预编译二进制文件，然后添加到系统 PATH 中。
 
-如需从源码编译：
+或者从源码编译：
 
 ```bash
 # 克隆项目
@@ -29,7 +29,7 @@ git clone https://github.com/Cnotech/cloud139.git
 cd cloud139
 
 # 编译
-cargo build --release
+cargo build -r
 
 # 可执行文件位于 target/release/cloud139
 ```
@@ -185,7 +185,7 @@ cloud139 download <远程路径> [本地路径]
 **示例：**
 
 ```bash
-cloud139 download /file.txt ./
+cloud139 download /file.txt
 cloud139 download /folder/photo.jpg ./downloads/
 ```
 
