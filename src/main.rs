@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use cloud139::commands::{cp, delete, download, list, login, mkdir, mv, rename, upload};
+use cloud139::commands::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
 use cloud139::error;
 
 #[derive(Parser)]
@@ -35,6 +35,8 @@ enum Commands {
     Cp(cp::CpArgs),
     /// 重命名文件
     Rename(rename::RenameArgs),
+    /// 同步文件夹
+    Sync(sync::SyncArgs),
 }
 
 #[tokio::main]
@@ -53,6 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Mv(args) => mv::execute(args).await,
         Commands::Cp(args) => cp::execute(args).await,
         Commands::Rename(args) => rename::execute(args).await,
+        Commands::Sync(args) => sync::execute(args).await,
     };
 
     if let Err(e) = result {

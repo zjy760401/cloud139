@@ -111,7 +111,10 @@ async fn upload_personal(
     }
 
     let part_size = get_part_size(file_size, config.custom_upload_part_size);
-    let part_count = (file_size + part_size - 1) / part_size;
+    let mut part_count = (file_size + part_size - 1) / part_size;
+    if part_count == 0 {
+        part_count = 1;
+    }
 
     let first_part_infos: Vec<serde_json::Value> = (0..part_count.min(100))
         .map(|i| {
@@ -400,6 +403,9 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
         let resp_code = tokio::task::spawn_blocking(move || {
             ureq::put(&upload_url)
                 .header("Content-Type", "application/octet-stream")
+                .header("Content-Length", &bytes_read.to_string())
+                .header("Origin", "https://yun.139.com")
+                .header("Referer", "https://yun.139.com/")
                 .send(&buffer[..bytes_read])
                 .map(|resp| resp.status().as_u16() as u32)
                 .unwrap_or_else(|e| {
