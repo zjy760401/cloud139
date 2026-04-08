@@ -1147,21 +1147,39 @@ async fn ensure_remote_root_personal(
     Ok(current_parent_id)
 }
 
-/// 确保远程目录存在（PersonalNew），返回目录的 file_id
-async fn ensure_remote_dir_personal(
+/// 确保远程目录存在（PersonalNew），带中间路径缓存
+async fn ensure_remote_dir_personal_cached(
     config: &crate::config::Config,
     host: &str,
     remote_base_id: &str,
     relative_dir: &str,
+    cache: &mut HashMap<String, String>,
 ) -> Result<String, ClientError> {
     if relative_dir.is_empty() {
         return Ok(remote_base_id.to_string());
     }
 
+    // 如果完整路径已缓存，直接返回
+    if let Some(id) = cache.get(relative_dir) {
+        return Ok(id.clone());
+    }
+
     let parts: Vec<&str> = relative_dir.split('/').filter(|s| !s.is_empty()).collect();
     let mut current_parent_id = remote_base_id.to_string();
+    let mut path_so_far = String::new();
 
     for part in &parts {
+        if !path_so_far.is_empty() {
+            path_so_far.push('/');
+        }
+        path_so_far.push_str(part);
+
+        // 检查中间路径缓存
+        if let Some(id) = cache.get(&path_so_far) {
+            current_parent_id = id.clone();
+            continue;
+        }
+
         let files = api::list_personal_files(config, &current_parent_id).await?;
         let existing = files
             .iter()
@@ -1193,6 +1211,8 @@ async fn ensure_remote_dir_personal(
 
             current_parent_id = resp.data.and_then(|d| d.file_id).unwrap_or_default();
         }
+
+        cache.insert(path_so_far.clone(), current_parent_id.clone());
     }
 
     Ok(current_parent_id)
@@ -1756,8 +1776,14 @@ async fn execute_personal(
             let parent_id = if let Some(cached) = dir_id_cache.get(&parent_rel) {
                 cached.clone()
             } else {
-                let id =
-                    ensure_remote_dir_personal(config, &host, &remote_base_id, &parent_rel).await?;
+                let id = ensure_remote_dir_personal_cached(
+                    config,
+                    &host,
+                    &remote_base_id,
+                    &parent_rel,
+                    &mut dir_id_cache,
+                )
+                .await?;
                 dir_id_cache.insert(parent_rel.clone(), id.clone());
                 id
             };
