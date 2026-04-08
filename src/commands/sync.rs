@@ -2158,6 +2158,35 @@ mod tests {
     }
 
     #[test]
+    fn test_scan_local_tree_excludes_dir_and_children() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // 创建正常文件
+        std::fs::write(root.join("readme.md"), "hello").unwrap();
+        std::fs::create_dir(root.join("notes")).unwrap();
+        std::fs::write(root.join("notes/note1.md"), "note").unwrap();
+
+        // 创建应被排除的目录及其子文件
+        std::fs::create_dir_all(root.join(".iobsidian/plugins")).unwrap();
+        std::fs::write(root.join(".iobsidian/config.json"), "{}").unwrap();
+        std::fs::write(root.join(".iobsidian/plugins/test.js"), "").unwrap();
+
+        let entries = scan_local_tree(root, &[".iobsidian".to_string()]).unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.relative_path.as_str()).collect();
+
+        assert!(names.contains(&"readme.md"));
+        assert!(names.contains(&"notes"));
+        assert!(names.contains(&"notes/note1.md"));
+        // .iobsidian 及其所有内容都不应出现
+        assert!(
+            !names.iter().any(|n| n.contains(".iobsidian")),
+            "Found .iobsidian entries in scan results: {:?}",
+            names
+        );
+    }
+
+    #[test]
     fn test_compute_diff_only_local() {
         let local = vec![LocalFileEntry {
             relative_path: "file1.txt".to_string(),
