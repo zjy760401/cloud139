@@ -6,7 +6,7 @@ use cloud139::utils::logger;
 #[derive(Parser)]
 #[command(name = "cloud139")]
 #[command(about = "139 Yun CLI - 移动云盘命令行工具", long_about = None)]
-#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(version = const_format::concatcp!("2.0.", env!("GIT_COMMIT_COUNT")))]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
