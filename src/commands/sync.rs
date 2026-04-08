@@ -1148,6 +1148,7 @@ async fn ensure_remote_root_personal(
 }
 
 /// 确保远程目录存在（PersonalNew），带中间路径缓存
+/// `created_dirs` 记录本次会话中新创建的目录，其子目录无需 list 直接创建
 async fn ensure_remote_dir_personal_cached(
     config: &crate::config::Config,
     host: &str,
@@ -1167,6 +1168,8 @@ async fn ensure_remote_dir_personal_cached(
     let parts: Vec<&str> = relative_dir.split('/').filter(|s| !s.is_empty()).collect();
     let mut current_parent_id = remote_base_id.to_string();
     let mut path_so_far = String::new();
+    // 一旦某级目录是新创建的，后续子目录必定不存在，跳过 list
+    let mut parent_is_new = false;
 
     for part in &parts {
         if !path_so_far.is_empty() {
@@ -1180,15 +1183,22 @@ async fn ensure_remote_dir_personal_cached(
             continue;
         }
 
-        let files = api::list_personal_files(config, &current_parent_id).await?;
-        let existing = files
-            .iter()
-            .find(|f| f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder"));
+        let mut found = false;
 
-        if let Some(dir) = existing {
-            current_parent_id = dir.file_id.clone().unwrap_or_default();
-        } else {
-            // Create the directory
+        // 如果父目录是本次新创建的，子目录必定不存在，直接创建
+        if !parent_is_new {
+            let files = api::list_personal_files(config, &current_parent_id).await?;
+            let existing = files.iter().find(|f| {
+                f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder")
+            });
+
+            if let Some(dir) = existing {
+                current_parent_id = dir.file_id.clone().unwrap_or_default();
+                found = true;
+            }
+        }
+
+        if !found {
             let url = format!("{}/file/create", host);
             let body = serde_json::json!({
                 "parentFileId": current_parent_id,
@@ -1210,6 +1220,7 @@ async fn ensure_remote_dir_personal_cached(
             }
 
             current_parent_id = resp.data.and_then(|d| d.file_id).unwrap_or_default();
+            parent_is_new = true;
         }
 
         cache.insert(path_so_far.clone(), current_parent_id.clone());
@@ -1766,6 +1777,41 @@ async fn execute_personal(
     let mut upload_task_data: Vec<(String, String, String, i64)> = Vec::new(); // (relative_path, parent_id, file_name, size)
 
     if !upload_tasks.is_empty() {
+        // 先收集所有需要的唯一父目录
+        let mut unique_dirs: Vec<String> = upload_tasks
+            .iter()
+            .map(|(_i, diff)| {
+                Path::new(&diff.relative_path)
+                    .parent()
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default()
+            })
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        unique_dirs.sort();
+
+        let dirs_to_create: Vec<&String> = unique_dirs
+            .iter()
+            .filter(|d| !d.is_empty() && !dir_id_cache.contains_key(d.as_str()))
+            .collect();
+        if !dirs_to_create.is_empty() {
+            step!("创建远程目录 ({} 个)...", dirs_to_create.len());
+        }
+        for dir in &unique_dirs {
+            if !dir_id_cache.contains_key(dir.as_str()) {
+                let id = ensure_remote_dir_personal_cached(
+                    config,
+                    &host,
+                    &remote_base_id,
+                    dir,
+                    &mut dir_id_cache,
+                )
+                .await?;
+                dir_id_cache.insert(dir.clone(), id);
+            }
+        }
+
         step!("准备上传任务...");
         for (_i, diff) in &upload_tasks {
             let parent_rel = Path::new(&diff.relative_path)
@@ -1773,20 +1819,10 @@ async fn execute_personal(
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
 
-            let parent_id = if let Some(cached) = dir_id_cache.get(&parent_rel) {
-                cached.clone()
-            } else {
-                let id = ensure_remote_dir_personal_cached(
-                    config,
-                    &host,
-                    &remote_base_id,
-                    &parent_rel,
-                    &mut dir_id_cache,
-                )
-                .await?;
-                dir_id_cache.insert(parent_rel.clone(), id.clone());
-                id
-            };
+            let parent_id = dir_id_cache
+                .get(&parent_rel)
+                .cloned()
+                .unwrap_or_else(|| remote_base_id.clone());
 
             let file_name = Path::new(&diff.relative_path)
                 .file_name()
