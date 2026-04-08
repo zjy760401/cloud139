@@ -90,16 +90,15 @@ user_domain_id = "domain123"
 
     #[test]
     fn test_config_config_path() {
-        let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("cloud139.toml"));
+        let path = Config::config_path().expect("should resolve config path");
+        assert!(path.to_string_lossy().contains("cloud139"));
+        assert!(path.to_string_lossy().ends_with("config.toml"));
     }
 
     #[test]
     fn test_config_load_not_found() {
-        // Use an explicit invalid path by temporarily changing behavior
-        // The config_path() is hardcoded, so we just verify it returns a valid path
-        let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("cloud139.toml"));
+        let path = Config::config_path().expect("should resolve config path");
+        assert!(path.to_string_lossy().contains("cloud139"));
     }
 
     #[test]

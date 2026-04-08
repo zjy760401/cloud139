@@ -15,6 +15,8 @@ pub enum ConfigError {
     TomlSer(#[from] toml::ser::Error),
     #[error("Config not found")]
     NotFound,
+    #[error("Cannot determine config directory")]
+    NoConfigDir,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,22 +68,33 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn config_path() -> PathBuf {
-        PathBuf::from("./cloud139.toml")
+    pub fn config_path() -> Result<PathBuf, ConfigError> {
+        let home = std::env::var("HOME")
+            .map(PathBuf::from)
+            .map_err(|_| ConfigError::NoConfigDir)?;
+        Ok(home.join(".config").join("cloud139").join("config.toml"))
     }
 
     pub fn load() -> Result<Self, ConfigError> {
-        let path = Self::config_path();
-        if !path.exists() {
+        // 优先读取用户配置目录，回退到当前目录的旧路径
+        let user_path = Self::config_path()?;
+        let legacy_path = PathBuf::from("./cloud139.toml");
+
+        let path = if user_path.exists() {
+            user_path
+        } else if legacy_path.exists() {
+            legacy_path
+        } else {
             return Err(ConfigError::NotFound);
-        }
+        };
+
         let content = fs::read_to_string(&path)?;
         let config: Config = toml::from_str(&content)?;
         Ok(config)
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
-        let path = Self::config_path();
+        let path = Self::config_path()?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }

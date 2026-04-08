@@ -18,7 +18,16 @@ fn test_config_load_not_found() {
     env::set_current_dir(temp_dir.path()).unwrap();
     let result = Config::load();
     env::set_current_dir(original).unwrap();
-    assert!(matches!(result, Err(ConfigError::NotFound)));
+    // 如果用户配置目录中已有配置文件，则 load 会成功（回退到用户目录）
+    // 如果不存在，则返回 NotFound
+    let user_config_exists = Config::config_path()
+        .map(|p| p.exists())
+        .unwrap_or(false);
+    if user_config_exists {
+        assert!(result.is_ok());
+    } else {
+        assert!(matches!(result, Err(ConfigError::NotFound)));
+    }
 }
 
 #[test]
@@ -166,6 +175,6 @@ fn test_default_values() {
 
 #[test]
 fn test_config_path_default() {
-    let path = Config::config_path();
-    assert!(path.ends_with("cloud139.toml"));
+    let path = Config::config_path().expect("should resolve config path");
+    assert!(path.ends_with("cloud139/config.toml"));
 }
