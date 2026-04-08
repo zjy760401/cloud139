@@ -153,12 +153,16 @@ fn is_macos() -> bool {
 /// 检查相对路径是否匹配任一 exclude 模式
 pub fn is_excluded(relative_path: &str, patterns: &[String]) -> bool {
     let name = relative_path.rsplit('/').next().unwrap_or(relative_path);
+    let components: Vec<&str> = relative_path.split('/').collect();
 
     // 检查 macOS 系统文件
     if is_macos() {
         for &mac_pattern in MACOS_EXCLUDE_PATTERNS {
             if glob_match::glob_match(mac_pattern, name)
                 || glob_match::glob_match(mac_pattern, relative_path)
+                || components
+                    .iter()
+                    .any(|c| glob_match::glob_match(mac_pattern, c))
             {
                 return true;
             }
@@ -166,7 +170,12 @@ pub fn is_excluded(relative_path: &str, patterns: &[String]) -> bool {
     }
 
     for pattern in patterns {
-        if glob_match::glob_match(pattern, name) || glob_match::glob_match(pattern, relative_path) {
+        if glob_match::glob_match(pattern, name)
+            || glob_match::glob_match(pattern, relative_path)
+            || components
+                .iter()
+                .any(|c| glob_match::glob_match(pattern, c))
+        {
             return true;
         }
     }
@@ -2133,6 +2142,19 @@ mod tests {
         assert!(is_excluded("app.log", &patterns));
         assert!(is_excluded("node_modules", &patterns));
         assert!(!is_excluded("main.rs", &patterns));
+    }
+
+    #[test]
+    fn test_is_excluded_dir_children() {
+        let patterns = vec![".obsidian".to_string()];
+        assert!(is_excluded(".obsidian", &patterns));
+        assert!(is_excluded(".obsidian/config.json", &patterns));
+        assert!(is_excluded(".obsidian/plugins/test.js", &patterns));
+        assert!(!is_excluded("notes/readme.md", &patterns));
+
+        let patterns2 = vec!["node_modules".to_string()];
+        assert!(is_excluded("node_modules/pkg/index.js", &patterns2));
+        assert!(!is_excluded("src/index.js", &patterns2));
     }
 
     #[test]
