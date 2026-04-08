@@ -1439,12 +1439,16 @@ async fn upload_parts_personal(
                 Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
             });
 
+        // 动态超时：按分片大小计算，假设最低 100KB/s，最少 60 秒
+        let timeout_secs = std::cmp::max(60, (content_len as u64 / (100 * 1024)) + 60);
+
         let resp = http_client
             .put(&upload_url)
             .header("Content-Type", "application/octet-stream")
             .header("Content-Length", content_len.to_string())
             .header("Origin", "https://yun.139.com")
             .header("Referer", "https://yun.139.com/")
+            .timeout(std::time::Duration::from_secs(timeout_secs))
             .body(reqwest::Body::wrap_stream(stream))
             .send()
             .await;
@@ -1892,7 +1896,8 @@ async fn execute_personal(
     let concurrency = args.concurrency;
 
     // 构建 HTTP Client 池（多网卡或默认单 Client）
-    let default_client = reqwest::Client::new();
+    // 不设全局 timeout，由每个分片上传请求按大小动态设置
+    let default_client = reqwest::Client::builder().build().unwrap_or_default();
     let client_pool: Arc<Vec<reqwest::Client>> = Arc::new(match &net_pool {
         Some(pool) => pool.clients.iter().map(|(_, c)| c.clone()).collect(),
         None => vec![default_client],
