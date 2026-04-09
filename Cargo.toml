@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12", features = ["json", "multipart", "stream", "cookies"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream", "cookies", "gzip", "deflate"] }
 ureq = "3.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

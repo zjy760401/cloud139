@@ -147,7 +147,24 @@ impl Client {
             .send()
             .await?;
 
-        let result: T = resp.json().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            return Err(ClientError::Api(format!(
+                "API 请求失败: HTTP {} — {}",
+                status.as_u16(),
+                &body_text[..body_text.len().min(500)]
+            )));
+        }
+
+        let body_text = resp.text().await?;
+        let result: T = serde_json::from_str(&body_text).map_err(|e| {
+            ClientError::Api(format!(
+                "解析 API 响应失败: {} — 响应内容: {}",
+                e,
+                &body_text[..body_text.len().min(500)]
+            ))
+        })?;
         Ok(result)
     }
 

@@ -120,6 +120,21 @@ fn auto_sync_action(kind: &DiffKind) -> UserAction {
     }
 }
 
+/// 流水线上传任务（scanner → upload consumer）
+struct UploadJob {
+    relative_path: String,
+    parent_id: String,
+    file_name: String,
+    file_size: i64,
+}
+
+/// 流水线下载任务（scanner → download consumer）
+struct DownloadJob {
+    relative_path: String,
+    file_id: String,
+    est_size: i64,
+}
+
 // ---------------------------------------------------------------------------
 // macOS hidden file patterns
 // ---------------------------------------------------------------------------
@@ -336,6 +351,7 @@ async fn build_multi_net_pool() -> Option<Arc<NetClientPool>> {
     for (iface, local_ip) in &valid {
         let client = reqwest::Client::builder()
             .local_address(std::net::IpAddr::V4(*local_ip))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()
             .ok()?;
         clients.push((format!("{} ({})", iface, local_ip), client));
@@ -437,8 +453,9 @@ pub async fn scan_remote_tree_personal(
     remote_path: &str,
     exclude_patterns: &[String],
 ) -> Result<Vec<RemoteFileEntry>, ClientError> {
+    let http_client = api::HttpClientWrapper::new();
     let mut config = config.clone();
-    let host = api::get_personal_cloud_host(&mut config).await?;
+    let host = api::get_personal_cloud_host_with_client(&mut config, &http_client).await?;
 
     let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
         "/".to_string()
@@ -454,6 +471,7 @@ pub async fn scan_remote_tree_personal(
         "",
         exclude_patterns,
         &mut entries,
+        &http_client,
     )
     .await?;
 
@@ -469,12 +487,14 @@ async fn scan_remote_recursive_personal(
     prefix: &str,
     exclude_patterns: &[String],
     entries: &mut Vec<RemoteFileEntry>,
+    http_client: &api::HttpClientWrapper,
 ) -> Result<(), ClientError> {
     let url = format!("{}/file/list", host);
     let mut next_cursor = String::new();
 
     loop {
         let body = serde_json::json!({
+            "imageThumbnailStyleList": ["Small", "Large"],
             "parentFileId": parent_id,
             "pageInfo": {
                 "pageCursor": next_cursor,
@@ -485,7 +505,7 @@ async fn scan_remote_recursive_personal(
         });
 
         let resp: crate::models::PersonalListResp =
-            api::personal_api_request(config, &url, body, StorageType::PersonalNew).await?;
+            api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, http_client).await?;
 
         if !resp.base.success {
             let msg = resp.base.message.as_deref().unwrap_or("未知错误");
@@ -541,6 +561,7 @@ async fn scan_remote_recursive_personal(
                     &relative_path,
                     exclude_patterns,
                     entries,
+                    http_client,
                 )
                 .await?;
             }
@@ -730,6 +751,7 @@ async fn list_remote_dir_personal(
     config: &crate::config::Config,
     host: &str,
     parent_id: &str,
+    http_client: &api::HttpClientWrapper,
 ) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
     let url = format!("{}/file/list", host);
     let mut all_items = Vec::new();
@@ -737,6 +759,7 @@ async fn list_remote_dir_personal(
 
     loop {
         let body = serde_json::json!({
+            "imageThumbnailStyleList": ["Small", "Large"],
             "parentFileId": parent_id,
             "pageInfo": {
                 "pageCursor": next_cursor,
@@ -747,7 +770,7 @@ async fn list_remote_dir_personal(
         });
 
         let resp: crate::models::PersonalListResp =
-            api::personal_api_request(config, &url, body, StorageType::PersonalNew).await?;
+            api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, http_client).await?;
 
         if !resp.base.success {
             let msg = resp.base.message.as_deref().unwrap_or("未知错误");
@@ -824,25 +847,30 @@ async fn scan_and_diff_bfs_personal(
     local_entries: &[LocalFileEntry],
     exclude_patterns: &[String],
 ) -> Result<(Vec<DiffEntry>, Vec<RemoteFileEntry>, usize, usize), ClientError> {
+    let http_client = api::HttpClientWrapper::new();
     let mut config = config.clone();
-    let host = api::get_personal_cloud_host(&mut config).await?;
+    let host = api::get_personal_cloud_host_with_client(&mut config, &http_client).await?;
 
     let index = build_local_dir_index(local_entries);
 
-    let remote_root_id = ensure_remote_root_personal(&config, &host, remote_path).await?;
+    let remote_root_id = ensure_remote_root_personal(&config, &host, remote_path, &http_client).await?;
 
     let mut diffs = Vec::new();
     let mut remote_entries = Vec::new();
     let mut remote_file_count = 0usize;
     let mut remote_dir_count = 0usize;
+    let mut scanned_dir_count = 0usize;
 
     // BFS 队列: (相对目录路径, 远程目录 ID)
     let mut queue: VecDeque<(String, String)> = VecDeque::new();
     queue.push_back(("".to_string(), remote_root_id));
 
     while let Some((rel_dir, remote_dir_id)) = queue.pop_front() {
+        scanned_dir_count += 1;
+        let display_dir = if rel_dir.is_empty() { "/" } else { &rel_dir };
+        eprint!("\r\x1b[36minfo\x1b[0m 已扫描 {} 个目录, 当前: {}  \x1b[K", scanned_dir_count, display_dir);
         // 获取当前远程目录的文件列表（单层）
-        let remote_items = list_remote_dir_personal(&config, &host, &remote_dir_id).await?;
+        let remote_items = list_remote_dir_personal(&config, &host, &remote_dir_id, &http_client).await?;
 
         // 分类远程条目：文件 / 子目录
         let mut remote_files_here: HashMap<String, RemoteFileEntry> = HashMap::new();
@@ -970,6 +998,7 @@ async fn scan_and_diff_bfs_personal(
                     &child_rel,
                     exclude_patterns,
                     &mut sub_entries,
+                    &http_client,
                 )
                 .await?;
 
@@ -992,10 +1021,315 @@ async fn scan_and_diff_bfs_personal(
         }
     }
 
+    // 清除 BFS 进度行
+    eprint!("\r\x1b[K");
+
     diffs.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     remote_entries.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
 
     Ok((diffs, remote_entries, remote_file_count, remote_dir_count))
+}
+
+/// 流水线 BFS 扫描：逐目录扫描远程、计算差异、立即派发上传/下载任务到 channel
+///
+/// 与 `scan_and_diff_bfs_personal` 不同，此函数不收集所有差异再返回，
+/// 而是每扫完一个目录就将需要的上传/下载任务通过 channel 发送给消费者。
+/// 上传前会先确保远程目录存在（使用 dir_id_cache 避免重复请求）。
+#[allow(clippy::too_many_arguments)]
+async fn scan_and_dispatch_bfs_personal(
+    config: &crate::config::Config,
+    host: &str,
+    remote_base_id: &str,
+    local_entries: &[LocalFileEntry],
+    exclude_patterns: &[String],
+    sync_mode: SyncMode,
+    upload_tx: &tokio::sync::mpsc::Sender<UploadJob>,
+    download_tx: &tokio::sync::mpsc::Sender<DownloadJob>,
+    scan_pb: &indicatif::ProgressBar,
+    overall_pb: &indicatif::ProgressBar,
+    http_client: &api::HttpClientWrapper,
+) -> Result<(usize, usize, usize), ClientError> {
+    // (upload_dispatched, download_dispatched, skipped)
+    let index = build_local_dir_index(local_entries);
+
+    let mut dir_id_cache: HashMap<String, String> = HashMap::new();
+    let mut scanned_dir_count = 0usize;
+    let mut remote_file_count = 0usize;
+    let mut remote_dir_count = 0usize;
+    let mut upload_dispatched = 0usize;
+    let mut download_dispatched = 0usize;
+    let mut skipped = 0usize;
+
+    let should_upload = matches!(sync_mode, SyncMode::UploadOnly | SyncMode::TwoWay);
+    let should_download = matches!(sync_mode, SyncMode::DownloadOnly | SyncMode::TwoWay);
+
+    let mut queue: VecDeque<(String, String)> = VecDeque::new();
+    queue.push_back(("".to_string(), remote_base_id.to_string()));
+
+    while let Some((rel_dir, remote_dir_id)) = queue.pop_front() {
+        scanned_dir_count += 1;
+        let display_dir = if rel_dir.is_empty() { "/" } else { &rel_dir };
+        scan_pb.set_message(format!(
+            "已扫描 {} 个目录  远程: {} 文件/{} 目录  当前: {}",
+            scanned_dir_count, remote_file_count, remote_dir_count, display_dir
+        ));
+
+        let remote_items =
+            list_remote_dir_personal(config, host, &remote_dir_id, http_client).await?;
+
+        // Classify remote items
+        let mut remote_files_here: HashMap<String, RemoteFileEntry> = HashMap::new();
+        let mut remote_subdirs_here: HashMap<String, String> = HashMap::new();
+
+        for item in &remote_items {
+            let Some((entry, is_dir)) = item_to_remote_entry(item, &rel_dir) else {
+                continue;
+            };
+            if is_excluded(&entry.relative_path, exclude_patterns) {
+                continue;
+            }
+            if is_dir {
+                remote_dir_count += 1;
+                remote_subdirs_here.insert(entry.name.clone(), entry.file_id.clone());
+            } else {
+                remote_file_count += 1;
+                remote_files_here.insert(entry.name.clone(), entry);
+            }
+        }
+
+        let empty_files = Vec::new();
+        let local_files = index.files.get(&rel_dir).unwrap_or(&empty_files);
+        let empty_subdirs = HashSet::new();
+        let local_subs = index.subdirs.get(&rel_dir).unwrap_or(&empty_subdirs);
+
+        // ---- Compare files ----
+        let mut uploads_here: Vec<(String, String, i64)> = Vec::new(); // (rel_path, file_name, size)
+
+        // Files only in local
+        for lf in local_files {
+            let file_name = Path::new(&lf.relative_path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            if !remote_files_here.contains_key(&file_name) {
+                if should_upload {
+                    uploads_here.push((lf.relative_path.clone(), file_name, lf.size));
+                } else {
+                    skipped += 1;
+                }
+            }
+        }
+
+        // Files in remote (only-remote or both-exist)
+        for (name, rf) in &remote_files_here {
+            if let Some(lf) = local_files.iter().find(|f| {
+                Path::new(&f.relative_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
+                    == *name
+            }) {
+                // Both exist — check size diff
+                if lf.size != rf.size {
+                    let kind = determine_newer(lf, rf);
+                    match kind {
+                        DiffKind::LocalNewer => {
+                            if should_upload {
+                                let file_name = Path::new(&lf.relative_path)
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_default();
+                                uploads_here.push((
+                                    lf.relative_path.clone(),
+                                    file_name,
+                                    lf.size,
+                                ));
+                            } else {
+                                skipped += 1;
+                            }
+                        }
+                        DiffKind::RemoteNewer => {
+                            if should_download {
+                                let _ = download_tx
+                                    .send(DownloadJob {
+                                        relative_path: rf.relative_path.clone(),
+                                        file_id: rf.file_id.clone(),
+                                        est_size: rf.size,
+                                    })
+                                    .await;
+                                overall_pb.inc_length(1);
+                                download_dispatched += 1;
+                            } else {
+                                skipped += 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            } else {
+                // Only in remote
+                if should_download {
+                    let _ = download_tx
+                        .send(DownloadJob {
+                            relative_path: rf.relative_path.clone(),
+                            file_id: rf.file_id.clone(),
+                            est_size: rf.size,
+                        })
+                        .await;
+                    overall_pb.inc_length(1);
+                    download_dispatched += 1;
+                } else {
+                    skipped += 1;
+                }
+            }
+        }
+
+        // Dispatch uploads for this directory (ensure dir first)
+        if !uploads_here.is_empty() {
+            let parent_id = if rel_dir.is_empty() {
+                remote_base_id.to_string()
+            } else {
+                ensure_remote_dir_personal_cached(
+                    config,
+                    host,
+                    remote_base_id,
+                    &rel_dir,
+                    &mut dir_id_cache,
+                    http_client,
+                )
+                .await?
+            };
+            for (rel_path, file_name, size) in uploads_here {
+                let _ = upload_tx
+                    .send(UploadJob {
+                        relative_path: rel_path,
+                        parent_id: parent_id.clone(),
+                        file_name,
+                        file_size: size,
+                    })
+                    .await;
+                overall_pb.inc_length(1);
+                upload_dispatched += 1;
+            }
+        }
+
+        // ---- Compare subdirectories ----
+        for local_sub in local_subs {
+            let child_rel = if rel_dir.is_empty() {
+                local_sub.clone()
+            } else {
+                format!("{}/{}", rel_dir, local_sub)
+            };
+
+            if let Some(remote_id) = remote_subdirs_here.get(local_sub) {
+                // Both exist → BFS queue + pre-populate dir_id_cache
+                queue.push_back((child_rel.clone(), remote_id.clone()));
+                dir_id_cache.insert(child_rel, remote_id.clone());
+            } else {
+                // Only local → dispatch all files under this subdir
+                if should_upload {
+                    let local_only_files = collect_local_files_under(&index, &child_rel);
+                    if !local_only_files.is_empty() {
+                        // Group by parent dir (sorted for hierarchical creation)
+                        let mut by_dir: std::collections::BTreeMap<
+                            String,
+                            Vec<(String, String, i64)>,
+                        > = std::collections::BTreeMap::new();
+                        for lf in &local_only_files {
+                            let parent = Path::new(&lf.relative_path)
+                                .parent()
+                                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                                .unwrap_or_default();
+                            let fname = Path::new(&lf.relative_path)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            by_dir
+                                .entry(parent)
+                                .or_default()
+                                .push((lf.relative_path.clone(), fname, lf.size));
+                        }
+                        for (dir, files) in by_dir {
+                            let parent_id = if dir.is_empty() {
+                                remote_base_id.to_string()
+                            } else {
+                                ensure_remote_dir_personal_cached(
+                                    config,
+                                    host,
+                                    remote_base_id,
+                                    &dir,
+                                    &mut dir_id_cache,
+                                    http_client,
+                                )
+                                .await?
+                            };
+                            for (rel_path, fname, size) in files {
+                                let _ = upload_tx
+                                    .send(UploadJob {
+                                        relative_path: rel_path,
+                                        parent_id: parent_id.clone(),
+                                        file_name: fname,
+                                        file_size: size,
+                                    })
+                                    .await;
+                                overall_pb.inc_length(1);
+                                upload_dispatched += 1;
+                            }
+                        }
+                    }
+                } else {
+                    let count = collect_local_files_under(&index, &child_rel).len();
+                    skipped += count;
+                }
+            }
+        }
+
+        // Remote-only subdirectories → DFS scan + dispatch downloads
+        for (remote_sub, remote_id) in &remote_subdirs_here {
+            if !local_subs.contains(remote_sub) {
+                let child_rel = if rel_dir.is_empty() {
+                    remote_sub.clone()
+                } else {
+                    format!("{}/{}", rel_dir, remote_sub)
+                };
+
+                if should_download {
+                    let mut sub_entries = Vec::new();
+                    scan_remote_recursive_personal(
+                        config,
+                        host,
+                        remote_id,
+                        &child_rel,
+                        exclude_patterns,
+                        &mut sub_entries,
+                        http_client,
+                    )
+                    .await?;
+                    for rf in sub_entries {
+                        if rf.is_dir {
+                            remote_dir_count += 1;
+                        } else {
+                            remote_file_count += 1;
+                            let _ = download_tx
+                                .send(DownloadJob {
+                                    relative_path: rf.relative_path.clone(),
+                                    file_id: rf.file_id.clone(),
+                                    est_size: rf.size,
+                                })
+                                .await;
+                            overall_pb.inc_length(1);
+                            download_dispatched += 1;
+                        }
+                    }
+                } else {
+                    skipped += 1; // approximate (skip counting nested to avoid unnecessary scan)
+                }
+            }
+        }
+    }
+
+    Ok((upload_dispatched, download_dispatched, skipped))
 }
 
 // ---------------------------------------------------------------------------
@@ -1105,6 +1439,7 @@ async fn ensure_remote_root_personal(
     config: &crate::config::Config,
     host: &str,
     remote_path: &str,
+    http_client: &api::HttpClientWrapper,
 ) -> Result<String, ClientError> {
     if remote_path == "/" || remote_path.is_empty() {
         return Ok("/".to_string());
@@ -1119,7 +1454,7 @@ async fn ensure_remote_root_personal(
     let mut current_parent_id = "/".to_string();
 
     for part in &parts {
-        let files = api::list_personal_files(config, &current_parent_id).await?;
+        let files = api::list_personal_files_with_client(config, &current_parent_id, http_client).await?;
         let existing = files
             .iter()
             .find(|f| f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder"));
@@ -1137,7 +1472,7 @@ async fn ensure_remote_root_personal(
             });
 
             let resp: crate::models::PersonalUploadResp =
-                api::personal_api_request(config, &url, body, StorageType::PersonalNew).await?;
+                api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, http_client).await?;
 
             if !resp.base.success {
                 return Err(ClientError::Api(format!(
@@ -1164,6 +1499,7 @@ async fn ensure_remote_dir_personal_cached(
     remote_base_id: &str,
     relative_dir: &str,
     cache: &mut HashMap<String, String>,
+    http_client: &api::HttpClientWrapper,
 ) -> Result<String, ClientError> {
     if relative_dir.is_empty() {
         return Ok(remote_base_id.to_string());
@@ -1196,7 +1532,7 @@ async fn ensure_remote_dir_personal_cached(
 
         // 如果父目录是本次新创建的，子目录必定不存在，直接创建
         if !parent_is_new {
-            let files = api::list_personal_files(config, &current_parent_id).await?;
+            let files = api::list_personal_files_with_client(config, &current_parent_id, http_client).await?;
             let existing = files.iter().find(|f| {
                 f.name.as_deref() == Some(part) && f.file_type.as_deref() == Some("folder")
             });
@@ -1218,7 +1554,7 @@ async fn ensure_remote_dir_personal_cached(
             });
 
             let resp: crate::models::PersonalUploadResp =
-                api::personal_api_request(config, &url, body, StorageType::PersonalNew).await?;
+                api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, http_client).await?;
 
             if !resp.base.success {
                 return Err(ClientError::Api(format!(
@@ -1503,7 +1839,22 @@ async fn download_file_personal(
         std::fs::create_dir_all(parent)?;
     }
 
-    let response = http_client.get(&download_url).send().await?;
+    let response = http_client
+        .get(&download_url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .header("Referer", "https://yun.139.com/")
+        .header("Origin", "https://yun.139.com")
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(ClientError::Api(format!(
+            "下载失败: HTTP {}",
+            status.as_u16()
+        )));
+    }
+
     let total_size = response.content_length().unwrap_or(0);
 
     if let Some(pb) = progress_bar {
@@ -1637,6 +1988,350 @@ async fn execute_personal(
         local_file_count, local_dir_count
     );
 
+    // ===================================================================
+    // Streaming pipeline for auto modes (non-interactive, non-dry-run)
+    // ===================================================================
+    if !args.dry_run && sync_mode != SyncMode::Interactive {
+        use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        step!("开始流水线同步: {}", remote_path);
+
+        // Obtain host and remote root
+        let http_client_shared = api::HttpClientWrapper::new();
+        let mut config_mut = config.clone();
+        let host =
+            api::get_personal_cloud_host_with_client(&mut config_mut, &http_client_shared).await?;
+        let remote_base_id =
+            ensure_remote_root_personal(config, &host, remote_path, &http_client_shared).await?;
+
+        let concurrency = args.concurrency;
+
+        // Channels: scanner → consumers
+        let (upload_tx, mut upload_rx) =
+            tokio::sync::mpsc::channel::<UploadJob>(concurrency * 2);
+        let (download_tx, mut download_rx) =
+            tokio::sync::mpsc::channel::<DownloadJob>(concurrency * 2);
+
+        // Build HTTP client pool (multi-net or single)
+        let default_client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .build()
+            .unwrap_or_default();
+        let client_pool: Arc<Vec<reqwest::Client>> = Arc::new(match &net_pool {
+            Some(pool) => pool.clients.iter().map(|(_, c)| c.clone()).collect(),
+            None => vec![default_client],
+        });
+        let client_index = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        // Progress bars
+        let mp = if crate::utils::logger::is_quiet() {
+            MultiProgress::with_draw_target(ProgressDrawTarget::hidden())
+        } else {
+            MultiProgress::new()
+        };
+
+        let scan_pb = mp.add(ProgressBar::new_spinner());
+        scan_pb.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {prefix} {msg}")
+                .unwrap()
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        scan_pb.set_prefix("\x1b[36mscan\x1b[0m");
+        scan_pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
+        let overall_style = ProgressStyle::with_template(
+            "{prefix} [{bar:30.cyan/dim}] {pos}/{len} ({percent}%) {msg}",
+        )
+        .unwrap()
+        .progress_chars("█▓░");
+
+        let overall_pb = mp.add(ProgressBar::new(0));
+        overall_pb.set_style(overall_style);
+        overall_pb.set_prefix("\x1b[34msync\x1b[0m");
+
+        let task_style = ProgressStyle::with_template(
+            "     {prefix} [{bar:25.green/dim}] {bytes}/{total_bytes} {bytes_per_sec} {msg}",
+        )
+        .unwrap()
+        .progress_chars("━╸─");
+
+        // Shared counters
+        let config = Arc::new(config.clone());
+        let host = Arc::new(host);
+        let local_root = Arc::new(local_root.to_path_buf());
+        let uploaded = Arc::new(AtomicU32::new(0));
+        let downloaded = Arc::new(AtomicU32::new(0));
+        let error_count = Arc::new(AtomicU32::new(0));
+        let failed_files: Arc<std::sync::Mutex<Vec<(String, String)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        // --- Scanner task ---
+        let scanner = {
+            let config = config.as_ref().clone();
+            let host = host.as_ref().clone();
+            let remote_base_id = remote_base_id.clone();
+            let local_entries = local_entries;
+            let exclude_patterns = args.exclude.clone();
+            let scan_pb = scan_pb.clone();
+            let overall_pb = overall_pb.clone();
+
+            async move {
+                let http_client = api::HttpClientWrapper::new();
+                let result = scan_and_dispatch_bfs_personal(
+                    &config,
+                    &host,
+                    &remote_base_id,
+                    &local_entries,
+                    &exclude_patterns,
+                    sync_mode,
+                    &upload_tx,
+                    &download_tx,
+                    &scan_pb,
+                    &overall_pb,
+                    &http_client,
+                )
+                .await;
+
+                match &result {
+                    Ok((up, down, _)) => {
+                        scan_pb.set_style(
+                            ProgressStyle::with_template("  {prefix} {msg}").unwrap(),
+                        );
+                        scan_pb.set_prefix("\x1b[32m✓\x1b[0m");
+                        scan_pb.finish_with_message(format!(
+                            "扫描完成  派发: ↑{} ↓{}",
+                            up, down
+                        ));
+                    }
+                    Err(e) => {
+                        scan_pb.set_style(
+                            ProgressStyle::with_template("  {prefix} {msg}").unwrap(),
+                        );
+                        scan_pb.set_prefix("\x1b[31m✗\x1b[0m");
+                        scan_pb.finish_with_message(format!("扫描失败: {}", e));
+                    }
+                }
+
+                // upload_tx and download_tx are dropped here, signaling end of input
+                result
+            }
+        };
+
+        // --- Upload consumer ---
+        let uploader = {
+            let config = Arc::clone(&config);
+            let host = Arc::clone(&host);
+            let local_root = Arc::clone(&local_root);
+            let uploaded = Arc::clone(&uploaded);
+            let downloaded = Arc::clone(&downloaded);
+            let error_count = Arc::clone(&error_count);
+            let failed_files = Arc::clone(&failed_files);
+            let client_pool = Arc::clone(&client_pool);
+            let client_index = Arc::clone(&client_index);
+            let task_style = task_style.clone();
+            let mp = mp.clone();
+            let overall_pb = overall_pb.clone();
+
+            async move {
+                let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+                let mut join_set = tokio::task::JoinSet::new();
+
+                while let Some(job) = upload_rx.recv().await {
+                    let config = Arc::clone(&config);
+                    let host = Arc::clone(&host);
+                    let local_root = Arc::clone(&local_root);
+                    let uploaded = Arc::clone(&uploaded);
+                    let downloaded = Arc::clone(&downloaded);
+                    let error_count = Arc::clone(&error_count);
+                    let failed_files = Arc::clone(&failed_files);
+                    let semaphore = Arc::clone(&semaphore);
+                    let task_style = task_style.clone();
+                    let mp = mp.clone();
+                    let overall_pb = overall_pb.clone();
+
+                    let idx =
+                        client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
+                    let http_client = client_pool[idx].clone();
+
+                    join_set.spawn(async move {
+                        let _permit = semaphore.acquire().await.unwrap();
+
+                        let pb = mp.insert_before(
+                            &overall_pb,
+                            ProgressBar::new(job.file_size as u64),
+                        );
+                        pb.set_style(task_style);
+                        let display_name =
+                            truncate_filename(&job.relative_path, 30);
+                        pb.set_prefix(format!("↑ {}", display_name));
+                        pb.set_position(0);
+
+                        let local_file = local_root.join(&job.relative_path);
+
+                        let result = upload_file_personal(
+                            &config,
+                            &host,
+                            &local_file,
+                            &job.parent_id,
+                            &job.file_name,
+                            Some(&pb),
+                            &http_client,
+                        )
+                        .await;
+
+                        match result {
+                            Ok(()) => {
+                                pb.set_position(job.file_size as u64);
+                                pb.finish_and_clear();
+                                uploaded.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(e) => {
+                                let err_msg = e.to_string();
+                                pb.abandon_with_message(format!("失败: {}", err_msg));
+                                error_count.fetch_add(1, Ordering::Relaxed);
+                                failed_files.lock().unwrap().push((
+                                    format!("↑ {}", job.relative_path),
+                                    err_msg,
+                                ));
+                            }
+                        }
+                        overall_pb.inc(1);
+                        overall_pb.set_message(format!(
+                            "↑{} ↓{}",
+                            uploaded.load(Ordering::Relaxed),
+                            downloaded.load(Ordering::Relaxed),
+                        ));
+                    });
+                }
+
+                while join_set.join_next().await.is_some() {}
+            }
+        };
+
+        // --- Download consumer ---
+        let downloader = {
+            let config = Arc::clone(&config);
+            let local_root = Arc::clone(&local_root);
+            let downloaded = Arc::clone(&downloaded);
+            let uploaded = Arc::clone(&uploaded);
+            let error_count = Arc::clone(&error_count);
+            let failed_files = Arc::clone(&failed_files);
+            let client_pool = Arc::clone(&client_pool);
+            let client_index = Arc::clone(&client_index);
+            let task_style = task_style.clone();
+            let mp = mp.clone();
+            let overall_pb = overall_pb.clone();
+
+            async move {
+                let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+                let mut join_set = tokio::task::JoinSet::new();
+
+                while let Some(job) = download_rx.recv().await {
+                    let config = Arc::clone(&config);
+                    let local_root = Arc::clone(&local_root);
+                    let downloaded = Arc::clone(&downloaded);
+                    let uploaded = Arc::clone(&uploaded);
+                    let error_count = Arc::clone(&error_count);
+                    let failed_files = Arc::clone(&failed_files);
+                    let semaphore = Arc::clone(&semaphore);
+                    let task_style = task_style.clone();
+                    let mp = mp.clone();
+                    let overall_pb = overall_pb.clone();
+
+                    let idx =
+                        client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
+                    let http_client = client_pool[idx].clone();
+
+                    join_set.spawn(async move {
+                        let _permit = semaphore.acquire().await.unwrap();
+
+                        let pb = mp.insert_before(
+                            &overall_pb,
+                            ProgressBar::new(job.est_size as u64),
+                        );
+                        pb.set_style(task_style);
+                        let display_name =
+                            truncate_filename(&job.relative_path, 30);
+                        pb.set_prefix(format!("↓ {}", display_name));
+                        pb.set_position(0);
+
+                        let local_file = local_root.join(&job.relative_path);
+
+                        let result = download_file_personal(
+                            &config,
+                            &job.file_id,
+                            &local_file,
+                            Some(&pb),
+                            &http_client,
+                        )
+                        .await;
+
+                        match result {
+                            Ok(()) => {
+                                pb.finish_and_clear();
+                                downloaded.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(e) => {
+                                let err_msg = e.to_string();
+                                pb.abandon_with_message(format!("失败: {}", err_msg));
+                                error_count.fetch_add(1, Ordering::Relaxed);
+                                failed_files.lock().unwrap().push((
+                                    format!("↓ {}", job.relative_path),
+                                    err_msg,
+                                ));
+                            }
+                        }
+                        overall_pb.inc(1);
+                        overall_pb.set_message(format!(
+                            "↑{} ↓{}",
+                            uploaded.load(Ordering::Relaxed),
+                            downloaded.load(Ordering::Relaxed),
+                        ));
+                    });
+                }
+
+                while join_set.join_next().await.is_some() {}
+            }
+        };
+
+        // Run all three pipelines concurrently
+        let (scan_result, _, _) = tokio::join!(scanner, uploader, downloader);
+        let (upload_dispatched, download_dispatched, skipped) = scan_result?;
+
+        overall_pb.finish_and_clear();
+
+        let uploaded_count = uploaded.load(Ordering::Relaxed);
+        let downloaded_count = downloaded.load(Ordering::Relaxed);
+        let errors = error_count.load(Ordering::Relaxed);
+
+        println!();
+        success!(
+            "同步完成: ↑ {} 已上传(共{}), ↓ {} 已下载(共{}), {} 已跳过, {} 错误",
+            uploaded_count,
+            upload_dispatched,
+            downloaded_count,
+            download_dispatched,
+            skipped,
+            errors
+        );
+
+        let failures = failed_files.lock().unwrap();
+        if !failures.is_empty() {
+            println!();
+            error!("以下文件传输失败:");
+            for (path, reason) in failures.iter() {
+                error!("  {} — {}", path, reason);
+            }
+        }
+
+        return Ok(());
+    }
+
+    // ===================================================================
+    // Batched flow for interactive / dry-run modes
+    // ===================================================================
+
     // Step 2: BFS 扫描远程并同时计算差异
     step!("扫描远程目录并计算差异: {}", remote_path);
     let (diffs, remote_entries, remote_file_count, remote_dir_count) =
@@ -1700,7 +2395,6 @@ async fn execute_personal(
             .collect(),
         SyncMode::Interactive => {
             if args.dry_run {
-                // In dry-run + interactive, just show the diff
                 diffs
                     .iter()
                     .enumerate()
@@ -1747,10 +2441,11 @@ async fn execute_personal(
     }
 
     // Execute actions with parallel transfers and progress bar
+    let http_client_shared = api::HttpClientWrapper::new();
     let mut config_mut = config.clone();
-    let host = api::get_personal_cloud_host(&mut config_mut).await?;
+    let host = api::get_personal_cloud_host_with_client(&mut config_mut, &http_client_shared).await?;
 
-    let remote_base_id = ensure_remote_root_personal(config, &host, remote_path).await?;
+    let remote_base_id = ensure_remote_root_personal(config, &host, remote_path, &http_client_shared).await?;
 
     // Build remote file_id lookup (owned)
     let remote_id_map: HashMap<String, String> = remote_entries
@@ -1770,7 +2465,6 @@ async fn execute_personal(
             UserAction::Download => download_tasks.push((*i, diff)),
             UserAction::Skip => skipped += 1,
             UserAction::Sync => {
-                // Sync 在交互阶段已解析为 Upload/Download，此处做兜底
                 match diff.kind {
                     DiffKind::OnlyLocal | DiffKind::LocalNewer => upload_tasks.push((*i, diff)),
                     DiffKind::OnlyRemote | DiffKind::RemoteNewer => download_tasks.push((*i, diff)),
@@ -1785,74 +2479,33 @@ async fn execute_personal(
         return Ok(());
     }
 
-    // Ensure remote directories exist BEFORE parallel uploads (sequential, deduped)
-    let mut dir_id_cache: HashMap<String, String> = HashMap::new();
-    let mut upload_task_data: Vec<(String, String, String, i64)> = Vec::new(); // (relative_path, parent_id, file_name, size)
+    // Group upload tasks by parent directory for pipeline processing
+    let mut upload_by_dir: std::collections::BTreeMap<String, Vec<(String, String, i64)>> =
+        std::collections::BTreeMap::new();
+    for (_i, diff) in &upload_tasks {
+        let parent_rel = Path::new(&diff.relative_path)
+            .parent()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
 
-    if !upload_tasks.is_empty() {
-        // 先收集所有需要的唯一父目录
-        let mut unique_dirs: Vec<String> = upload_tasks
-            .iter()
-            .map(|(_i, diff)| {
-                Path::new(&diff.relative_path)
-                    .parent()
-                    .map(|p| p.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_default()
-            })
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-        unique_dirs.sort();
+        let file_name = Path::new(&diff.relative_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
 
-        let dirs_to_create: Vec<&String> = unique_dirs
-            .iter()
-            .filter(|d| !d.is_empty() && !dir_id_cache.contains_key(d.as_str()))
-            .collect();
-        if !dirs_to_create.is_empty() {
-            step!("创建远程目录 ({} 个)...", dirs_to_create.len());
-        }
-        for dir in &unique_dirs {
-            if !dir_id_cache.contains_key(dir.as_str()) {
-                let id = ensure_remote_dir_personal_cached(
-                    config,
-                    &host,
-                    &remote_base_id,
-                    dir,
-                    &mut dir_id_cache,
-                )
-                .await?;
-                dir_id_cache.insert(dir.clone(), id);
-            }
-        }
+        let local_file = local_root.join(&diff.relative_path);
+        let size = std::fs::metadata(&local_file)
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
 
-        step!("准备上传任务...");
-        for (_i, diff) in &upload_tasks {
-            let parent_rel = Path::new(&diff.relative_path)
-                .parent()
-                .map(|p| p.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_default();
-
-            let parent_id = dir_id_cache
-                .get(&parent_rel)
-                .cloned()
-                .unwrap_or_else(|| remote_base_id.clone());
-
-            let file_name = Path::new(&diff.relative_path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-
-            let local_file = local_root.join(&diff.relative_path);
-            let size = std::fs::metadata(&local_file)
-                .map(|m| m.len() as i64)
-                .unwrap_or(0);
-
-            upload_task_data.push((diff.relative_path.clone(), parent_id, file_name, size));
-        }
+        upload_by_dir
+            .entry(parent_rel)
+            .or_default()
+            .push((diff.relative_path.clone(), file_name, size));
     }
 
-    // Prepare download items (before progress bars start)
+    // Prepare download items
     let download_items: Vec<(String, String)> = download_tasks
         .iter()
         .filter_map(|(_i, diff)| {
@@ -1871,10 +2524,10 @@ async fn execute_personal(
         .collect();
 
     // Log summary before progress bars take over the terminal
-    if !upload_task_data.is_empty() {
+    if !upload_tasks.is_empty() {
         step!(
-            "开始并行上传 ({} 个文件, 并行数: {})",
-            upload_task_data.len(),
+            "开始流水线上传 ({} 个文件, 并行数: {})",
+            upload_tasks.len(),
             args.concurrency
         );
     }
@@ -1895,9 +2548,10 @@ async fn execute_personal(
     let local_root = Arc::new(local_root.to_path_buf());
     let concurrency = args.concurrency;
 
-    // 构建 HTTP Client 池（多网卡或默认单 Client）
-    // 不设全局 timeout，由每个分片上传请求按大小动态设置
-    let default_client = reqwest::Client::builder().build().unwrap_or_default();
+    let default_client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build()
+        .unwrap_or_default();
     let client_pool: Arc<Vec<reqwest::Client>> = Arc::new(match &net_pool {
         Some(pool) => pool.clients.iter().map(|(_, c)| c.clone()).collect(),
         None => vec![default_client],
@@ -1910,7 +2564,6 @@ async fn execute_personal(
         MultiProgress::new()
     };
 
-    // Overall progress bar
     let overall_style =
         ProgressStyle::with_template("{prefix} [{bar:30.cyan/dim}] {pos}/{len} ({percent}%) {msg}")
             .unwrap()
@@ -1921,7 +2574,6 @@ async fn execute_personal(
     overall_pb.set_prefix("\x1b[34msync\x1b[0m");
     overall_pb.set_message("");
 
-    // Per-task progress bar style (with speed)
     let task_style = ProgressStyle::with_template(
         "     {prefix} [{bar:25.green/dim}] {bytes}/{total_bytes} {bytes_per_sec} {msg}",
     )
@@ -1934,137 +2586,234 @@ async fn execute_personal(
     let failed_files: Arc<std::sync::Mutex<Vec<(String, String)>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
 
-    // Parallel uploads
-    if !upload_task_data.is_empty() {
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-        let mut join_set = tokio::task::JoinSet::new();
+    let upload_future = {
+        let config = Arc::clone(&config);
+        let host = Arc::clone(&host);
+        let local_root = Arc::clone(&local_root);
+        let uploaded = Arc::clone(&uploaded);
+        let error_count = Arc::clone(&error_count);
+        let failed_files = Arc::clone(&failed_files);
+        let client_pool = Arc::clone(&client_pool);
+        let client_index = Arc::clone(&client_index);
+        let task_style = task_style.clone();
+        let mp = mp.clone();
+        let overall_pb = overall_pb.clone();
+        let remote_base_id = remote_base_id.clone();
 
-        for (relative_path, parent_id, file_name, file_size) in upload_task_data {
-            let config = Arc::clone(&config);
-            let host = Arc::clone(&host);
-            let local_root = Arc::clone(&local_root);
-            let uploaded = Arc::clone(&uploaded);
-            let error_count = Arc::clone(&error_count);
-            let failed_files = Arc::clone(&failed_files);
-            let semaphore = Arc::clone(&semaphore);
-            let task_style = task_style.clone();
-            let mp = mp.clone();
-            let overall_pb = overall_pb.clone();
+        async move {
+            if upload_by_dir.is_empty() {
+                return;
+            }
 
-            // 文件级 round-robin 选择 HTTP Client
-            let idx = client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
-            let http_client = client_pool[idx].clone();
+            let (tx, mut rx) =
+                tokio::sync::mpsc::channel::<(String, String, String, i64)>(concurrency * 2);
 
-            join_set.spawn(async move {
-                let _permit = semaphore.acquire().await.unwrap();
+            let producer = {
+                let config = Arc::clone(&config);
+                let host = Arc::clone(&host);
+                let http_client_for_dirs = api::HttpClientWrapper::new();
 
-                // Create progress bar only when task becomes active
-                let pb = mp.insert_before(&overall_pb, ProgressBar::new(file_size as u64));
-                pb.set_style(task_style);
-                let display_name = truncate_filename(&relative_path, 30);
-                pb.set_prefix(format!("↑ {}", display_name));
-                pb.set_position(0);
+                async move {
+                    let mut dir_id_cache: HashMap<String, String> = HashMap::new();
 
-                let local_file = local_root.join(&relative_path);
+                    for (dir, files) in upload_by_dir {
+                        let parent_id = if dir.is_empty() {
+                            remote_base_id.clone()
+                        } else {
+                            match ensure_remote_dir_personal_cached(
+                                &config,
+                                &host,
+                                &remote_base_id,
+                                &dir,
+                                &mut dir_id_cache,
+                                &http_client_for_dirs,
+                            )
+                            .await
+                            {
+                                Ok(id) => id,
+                                Err(e) => {
+                                    eprintln!(
+                                        "\x1b[31merror\x1b[0m 创建远程目录 '{}' 失败: {}",
+                                        dir, e
+                                    );
+                                    continue;
+                                }
+                            }
+                        };
 
-                let result = upload_file_personal(
-                    &config,
-                    &host,
-                    &local_file,
-                    &parent_id,
-                    &file_name,
-                    Some(&pb),
-                    &http_client,
-                )
-                .await;
-
-                match result {
-                    Ok(()) => {
-                        pb.set_position(file_size as u64);
-                        pb.finish_and_clear();
-                        uploaded.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Err(e) => {
-                        let err_msg = e.to_string();
-                        pb.abandon_with_message(format!("失败: {}", err_msg));
-                        error_count.fetch_add(1, Ordering::Relaxed);
-                        failed_files
-                            .lock()
-                            .unwrap()
-                            .push((format!("↑ {}", relative_path), err_msg));
+                        for (relative_path, file_name, size) in files {
+                            if tx
+                                .send((relative_path, parent_id.clone(), file_name, size))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
                     }
                 }
-                overall_pb.inc(1);
-            });
+            };
+
+            let consumer = {
+                async move {
+                    let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+                    let mut join_set = tokio::task::JoinSet::new();
+
+                    while let Some((relative_path, parent_id, file_name, file_size)) =
+                        rx.recv().await
+                    {
+                        let config = Arc::clone(&config);
+                        let host = Arc::clone(&host);
+                        let local_root = Arc::clone(&local_root);
+                        let uploaded = Arc::clone(&uploaded);
+                        let error_count = Arc::clone(&error_count);
+                        let failed_files = Arc::clone(&failed_files);
+                        let semaphore = Arc::clone(&semaphore);
+                        let task_style = task_style.clone();
+                        let mp = mp.clone();
+                        let overall_pb = overall_pb.clone();
+
+                        let idx =
+                            client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
+                        let http_client = client_pool[idx].clone();
+
+                        join_set.spawn(async move {
+                            let _permit = semaphore.acquire().await.unwrap();
+
+                            let pb = mp.insert_before(
+                                &overall_pb,
+                                ProgressBar::new(file_size as u64),
+                            );
+                            pb.set_style(task_style);
+                            let display_name = truncate_filename(&relative_path, 30);
+                            pb.set_prefix(format!("↑ {}", display_name));
+                            pb.set_position(0);
+
+                            let local_file = local_root.join(&relative_path);
+
+                            let result = upload_file_personal(
+                                &config,
+                                &host,
+                                &local_file,
+                                &parent_id,
+                                &file_name,
+                                Some(&pb),
+                                &http_client,
+                            )
+                            .await;
+
+                            match result {
+                                Ok(()) => {
+                                    pb.set_position(file_size as u64);
+                                    pb.finish_and_clear();
+                                    uploaded.fetch_add(1, Ordering::Relaxed);
+                                }
+                                Err(e) => {
+                                    let err_msg = e.to_string();
+                                    pb.abandon_with_message(format!("失败: {}", err_msg));
+                                    error_count.fetch_add(1, Ordering::Relaxed);
+                                    failed_files
+                                        .lock()
+                                        .unwrap()
+                                        .push((format!("↑ {}", relative_path), err_msg));
+                                }
+                            }
+                            overall_pb.inc(1);
+                        });
+                    }
+
+                    while join_set.join_next().await.is_some() {}
+                }
+            };
+
+            tokio::join!(producer, consumer);
         }
+    };
 
-        while join_set.join_next().await.is_some() {}
-    }
+    let download_future = {
+        let config = Arc::clone(&config);
+        let local_root = Arc::clone(&local_root);
+        let downloaded = Arc::clone(&downloaded);
+        let error_count = Arc::clone(&error_count);
+        let failed_files = Arc::clone(&failed_files);
+        let client_pool = Arc::clone(&client_pool);
+        let client_index = Arc::clone(&client_index);
+        let task_style = task_style.clone();
+        let mp = mp.clone();
+        let overall_pb = overall_pb.clone();
 
-    // Count missing remote IDs as errors
+        async move {
+            if download_items.is_empty() {
+                return;
+            }
+
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+            let mut join_set = tokio::task::JoinSet::new();
+
+            for (relative_path, file_id) in download_items {
+                let config = Arc::clone(&config);
+                let local_root = Arc::clone(&local_root);
+                let downloaded = Arc::clone(&downloaded);
+                let error_count = Arc::clone(&error_count);
+                let failed_files = Arc::clone(&failed_files);
+                let semaphore = Arc::clone(&semaphore);
+                let task_style = task_style.clone();
+                let mp = mp.clone();
+                let overall_pb = overall_pb.clone();
+
+                let est_size = remote_size_map.get(&relative_path).copied().unwrap_or(0) as u64;
+
+                let idx = client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
+                let http_client = client_pool[idx].clone();
+
+                join_set.spawn(async move {
+                    let _permit = semaphore.acquire().await.unwrap();
+
+                    let pb = mp.insert_before(&overall_pb, ProgressBar::new(est_size));
+                    pb.set_style(task_style);
+                    let display_name = truncate_filename(&relative_path, 30);
+                    pb.set_prefix(format!("↓ {}", display_name));
+                    pb.set_position(0);
+
+                    let local_file = local_root.join(&relative_path);
+
+                    let result = download_file_personal(
+                        &config,
+                        &file_id,
+                        &local_file,
+                        Some(&pb),
+                        &http_client,
+                    )
+                    .await;
+
+                    match result {
+                        Ok(()) => {
+                            pb.finish_and_clear();
+                            downloaded.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(e) => {
+                            let err_msg = e.to_string();
+                            pb.abandon_with_message(format!("失败: {}", err_msg));
+                            error_count.fetch_add(1, Ordering::Relaxed);
+                            failed_files
+                                .lock()
+                                .unwrap()
+                                .push((format!("↓ {}", relative_path), err_msg));
+                        }
+                    }
+                    overall_pb.inc(1);
+                });
+            }
+
+            while join_set.join_next().await.is_some() {}
+        }
+    };
+
+    tokio::join!(upload_future, download_future);
+
     if missing_ids > 0 {
         error_count.fetch_add(missing_ids as u32, Ordering::Relaxed);
         overall_pb.inc(missing_ids as u64);
-    }
-
-    // Parallel downloads
-    if !download_items.is_empty() {
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-        let mut join_set = tokio::task::JoinSet::new();
-
-        for (relative_path, file_id) in download_items {
-            let config = Arc::clone(&config);
-            let local_root = Arc::clone(&local_root);
-            let downloaded = Arc::clone(&downloaded);
-            let error_count = Arc::clone(&error_count);
-            let failed_files = Arc::clone(&failed_files);
-            let semaphore = Arc::clone(&semaphore);
-            let task_style = task_style.clone();
-            let mp = mp.clone();
-            let overall_pb = overall_pb.clone();
-
-            let est_size = remote_size_map.get(&relative_path).copied().unwrap_or(0) as u64;
-
-            // 文件级 round-robin 选择 HTTP Client
-            let idx = client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
-            let http_client = client_pool[idx].clone();
-
-            join_set.spawn(async move {
-                let _permit = semaphore.acquire().await.unwrap();
-
-                // Create progress bar only when task becomes active
-                let pb = mp.insert_before(&overall_pb, ProgressBar::new(est_size));
-                pb.set_style(task_style);
-                let display_name = truncate_filename(&relative_path, 30);
-                pb.set_prefix(format!("↓ {}", display_name));
-                pb.set_position(0);
-
-                let local_file = local_root.join(&relative_path);
-
-                let result =
-                    download_file_personal(&config, &file_id, &local_file, Some(&pb), &http_client)
-                        .await;
-
-                match result {
-                    Ok(()) => {
-                        pb.finish_and_clear();
-                        downloaded.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Err(e) => {
-                        let err_msg = e.to_string();
-                        pb.abandon_with_message(format!("失败: {}", err_msg));
-                        error_count.fetch_add(1, Ordering::Relaxed);
-                        failed_files
-                            .lock()
-                            .unwrap()
-                            .push((format!("↓ {}", relative_path), err_msg));
-                    }
-                }
-                overall_pb.inc(1);
-            });
-        }
-
-        while join_set.join_next().await.is_some() {}
     }
 
     overall_pb.finish_and_clear();
@@ -2073,7 +2822,6 @@ async fn execute_personal(
     let downloaded = downloaded.load(Ordering::Relaxed);
     let errors = error_count.load(Ordering::Relaxed);
 
-    // Summary
     println!();
     success!(
         "同步完成: ↑ {} 已上传, ↓ {} 已下载, {} 已跳过, {} 错误",
@@ -2083,7 +2831,6 @@ async fn execute_personal(
         errors
     );
 
-    // Failed files report
     let failures = failed_files.lock().unwrap();
     if !failures.is_empty() {
         println!();

@@ -52,7 +52,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         logger::set_quiet(true);
     }
 
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&cli.verbose))
+    // 仅对本项目启用用户指定日志级别，第三方 crate 默认 warn
+    let default_filter = format!("warn,cloud139={}", cli.verbose);
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&default_filter))
         .init();
 
     let result = match cli.command {

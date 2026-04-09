@@ -200,8 +200,24 @@ async fn download_personal(
 async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> {
     step!("开始下载到: {:?}", local_path);
 
-    let client = reqwest::Client::new();
-    let response = client.get(url).send().await?;
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build()
+        .unwrap_or_default();
+    let response = client
+        .get(url)
+        .header("Referer", "https://yun.139.com/")
+        .header("Origin", "https://yun.139.com")
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(ClientError::Api(format!(
+            "下载失败: HTTP {}",
+            status.as_u16()
+        )));
+    }
 
     if let Some(parent) = local_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -230,6 +246,7 @@ async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> 
         }
     }
 
+    println!();
     success!("下载完成!");
     Ok(())
 }

@@ -6,6 +6,8 @@ pub struct HttpClientWrapper {
     pub client: reqwest::Client,
 }
 
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 impl Default for HttpClientWrapper {
     fn default() -> Self {
         Self::new()
@@ -15,7 +17,10 @@ impl Default for HttpClientWrapper {
 impl HttpClientWrapper {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .user_agent(USER_AGENT)
+                .build()
+                .unwrap_or_default(),
         }
     }
 
@@ -91,14 +96,31 @@ pub async fn get_personal_cloud_host_with_client(
 
     let resp = client.post(url).headers(headers).json(&body).send().await?;
 
-    let route_resp: QueryRoutePolicyResp = resp.json().await?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(ClientError::Api(format!(
+            "查询路由策略失败: HTTP {} — {}",
+            status.as_u16(),
+            &body_text[..body_text.len().min(500)]
+        )));
+    }
+
+    let body_text = resp.text().await?;
+    let route_resp: QueryRoutePolicyResp = serde_json::from_str(&body_text).map_err(|e| {
+        ClientError::Api(format!(
+            "解析路由策略响应失败: {} — 响应内容: {}",
+            e,
+            &body_text[..body_text.len().min(500)]
+        ))
+    })?;
 
     let host = route_resp
         .data
         .route_policy_list
         .into_iter()
         .find(|p| p.mod_name.as_deref() == Some("personal"))
-        .map(|p| p.https_url.unwrap_or_default())
+        .map(|p| p.https_url.unwrap_or_default().trim_end_matches('/').to_string())
         .ok_or_else(|| ClientError::Other("Could not find personal cloud host".to_string()))?;
 
     config.personal_cloud_host = Some(host.clone());
@@ -133,26 +155,45 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
 
         let url = format!("{}/file/list", host);
 
-        let body = serde_json::json!({
-            "parentFileId": parent_id,
-            "pageInfo": {
-                "pageCursor": "",
-                "pageSize": 100
-            },
-            "orderBy": "updated_at",
-            "orderDirection": "DESC"
-        });
+        let mut target_id: Option<String> = None;
+        let mut next_cursor = String::new();
 
-        let list_resp: crate::models::PersonalListResp =
-            personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew)
-                .await?;
+        loop {
+            let body = serde_json::json!({
+                "imageThumbnailStyleList": ["Small", "Large"],
+                "parentFileId": parent_id,
+                "pageInfo": {
+                    "pageCursor": next_cursor,
+                    "pageSize": 100
+                },
+                "orderBy": "updated_at",
+                "orderDirection": "DESC"
+            });
 
-        let items = list_resp.data.map(|d| d.items).unwrap_or_default();
+            let list_resp: crate::models::PersonalListResp =
+                personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew)
+                    .await?;
 
-        let target_id = items
-            .into_iter()
-            .find(|item| item.name.as_deref() == Some(part))
-            .map(|item| item.file_id.unwrap_or_default());
+            let data = match list_resp.data {
+                Some(d) => d,
+                None => break,
+            };
+
+            target_id = data
+                .items
+                .into_iter()
+                .find(|item| item.name.as_deref() == Some(part))
+                .map(|item| item.file_id.unwrap_or_default());
+
+            if target_id.is_some() {
+                break;
+            }
+
+            next_cursor = data.next_page_cursor.unwrap_or_default();
+            if next_cursor.is_empty() {
+                break;
+            }
+        }
 
         match target_id {
             Some(id) => {
@@ -273,7 +314,24 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
 
     let resp = client.post(url).headers(headers).json(&body).send().await?;
 
-    let result: T = resp.json().await?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(ClientError::Api(format!(
+            "API 请求失败: HTTP {} — {}",
+            status.as_u16(),
+            &body_text[..body_text.len().min(500)]
+        )));
+    }
+
+    let body_text = resp.text().await?;
+    let result: T = serde_json::from_str(&body_text).map_err(|e| {
+        ClientError::Api(format!(
+            "解析 API 响应失败: {} — 响应内容: {}",
+            e,
+            &body_text[..body_text.len().min(500)]
+        ))
+    })?;
     Ok(result)
 }
 
@@ -312,27 +370,44 @@ pub async fn list_personal_files_with_client(
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/list", host);
 
-    let body = serde_json::json!({
-        "imageThumbnailStyleList": ["Small", "Large"],
-        "orderBy": "updated_at",
-        "orderDirection": "DESC",
-        "pageInfo": {
-            "pageCursor": "",
-            "pageSize": 100
-        },
-        "parentFileId": parent_file_id
-    });
+    let mut all_items = Vec::new();
+    let mut next_cursor = String::new();
 
-    let resp: crate::models::PersonalListResp = personal_api_request_with_client(
-        &config,
-        &url,
-        body,
-        crate::client::StorageType::PersonalNew,
-        http_client,
-    )
-    .await?;
+    loop {
+        let body = serde_json::json!({
+            "imageThumbnailStyleList": ["Small", "Large"],
+            "orderBy": "updated_at",
+            "orderDirection": "DESC",
+            "pageInfo": {
+                "pageCursor": next_cursor,
+                "pageSize": 100
+            },
+            "parentFileId": parent_file_id
+        });
 
-    Ok(resp.data.map(|d| d.items).unwrap_or_default())
+        let resp: crate::models::PersonalListResp = personal_api_request_with_client(
+            &config,
+            &url,
+            body,
+            crate::client::StorageType::PersonalNew,
+            http_client,
+        )
+        .await?;
+
+        let data = match resp.data {
+            Some(d) => d,
+            None => break,
+        };
+
+        all_items.extend(data.items);
+
+        next_cursor = data.next_page_cursor.unwrap_or_default();
+        if next_cursor.is_empty() {
+            break;
+        }
+    }
+
+    Ok(all_items)
 }
 
 pub async fn get_family_download_link(
