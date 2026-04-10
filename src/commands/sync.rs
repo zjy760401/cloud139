@@ -1697,8 +1697,8 @@ async fn upload_parts_personal(
                 })
                 .await;
 
-                let buffer = match buffer {
-                    Ok(Ok(buf)) => buf,
+                let buffer: bytes::Bytes = match buffer {
+                    Ok(Ok(buf)) => buf.into(),
                     Ok(Err(e)) => {
                         let mut guard = first_error.lock().unwrap();
                         if guard.is_none() {
@@ -1736,8 +1736,9 @@ async fn upload_parts_personal(
                     // P3: 跟踪本分片已上报的进度字节
                     let part_sent_stream = Arc::clone(&part_sent);
                     let uploaded_bytes_stream = Arc::clone(&uploaded_bytes);
+                    let buf_clone = buffer.clone(); // Bytes: 引用计数零拷贝
                     let stream = futures_util::stream::unfold(
-                        (0usize, buffer.clone(), pb.clone()),
+                        (0usize, buf_clone, pb.clone()),
                         move |(pos, buf, pb)| {
                             let part_sent = Arc::clone(&part_sent_stream);
                             let uploaded_bytes = Arc::clone(&uploaded_bytes_stream);
@@ -1746,7 +1747,7 @@ async fn upload_parts_personal(
                                     return None;
                                 }
                                 let end = std::cmp::min(pos + 256 * 1024, buf.len());
-                                let chunk = buf[pos..end].to_vec();
+                                let chunk = buf.slice(pos..end);
                                 let delta = (end - pos) as u64;
                                 if let Some(ref pb) = pb {
                                     pb.inc(delta);
@@ -1836,6 +1837,7 @@ async fn upload_parts_personal(
 
             let mut buffer = vec![0u8; read_size as usize];
             file.read_exact(&mut buffer)?;
+            let buffer: bytes::Bytes = buffer.into();
 
             let part_number = (i + 1) as i32;
             let upload_url = upload_urls
@@ -1859,14 +1861,15 @@ async fn upload_parts_personal(
                 }
 
                 let pb_clone = progress_bar.cloned();
+                let buf_clone = buffer.clone(); // Bytes: 引用计数零拷贝
                 let stream = futures_util::stream::unfold(
-                    (0usize, buffer.clone(), pb_clone),
+                    (0usize, buf_clone, pb_clone),
                     |(pos, buf, pb)| async move {
                         if pos >= buf.len() {
                             return None;
                         }
                         let end = std::cmp::min(pos + 256 * 1024, buf.len());
-                        let chunk = buf[pos..end].to_vec();
+                        let chunk = buf.slice(pos..end);
                         if let Some(ref pb) = pb {
                             pb.inc((end - pos) as u64);
                         }
@@ -1940,13 +1943,27 @@ async fn upload_parts_personal(
 /// 下载单个文件（PersonalNew），支持进度回调
 async fn download_file_personal(
     config: &crate::config::Config,
+    host: &str,
     file_id: &str,
     local_path: &Path,
     progress_bar: Option<&indicatif::ProgressBar>,
     http_client: &reqwest::Client,
+    retries: u32,
 ) -> Result<(), ClientError> {
     let client_wrapper = api::HttpClientWrapper::with_client(http_client.clone());
-    let download_url = api::get_personal_download_link_with_client(config, file_id, &client_wrapper).await?;
+    let url = format!("{}/file/getDownloadUrl", host);
+    let body = serde_json::json!({ "fileId": file_id });
+    let resp: serde_json::Value =
+        api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, &client_wrapper).await?;
+
+    let download_url = resp
+        .pointer("/data/cdnUrl")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| resp.pointer("/data/url").and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .to_string();
+
     if download_url.is_empty() {
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
@@ -1955,44 +1972,92 @@ async fn download_file_personal(
         std::fs::create_dir_all(parent)?;
     }
 
-    let response = http_client
-        .get(&download_url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .header("Referer", "https://yun.139.com/")
-        .header("Origin", "https://yun.139.com")
-        .send()
-        .await?;
+    // 写入临时文件，成功后 rename 到目标路径
+    let tmp_path = local_path.with_extension("tmp");
 
-    let status = response.status();
-    if !status.is_success() {
-        return Err(ClientError::Api(format!(
-            "下载失败: HTTP {}",
-            status.as_u16()
-        )));
-    }
+    let mut last_err: Option<ClientError> = None;
+    for attempt in 0..=retries {
+        if attempt > 0 {
+            let delay = std::time::Duration::from_secs(1 << attempt.min(4));
+            tokio::time::sleep(delay).await;
+        }
 
-    let total_size = response.content_length().unwrap_or(0);
+        let response = http_client
+            .get(&download_url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("Referer", "https://yun.139.com/")
+            .header("Origin", "https://yun.139.com")
+            .send()
+            .await;
 
-    if let Some(pb) = progress_bar {
-        pb.set_length(total_size);
-        pb.set_position(0);
-    }
+        let response = match response {
+            Ok(r) if r.status().is_success() => r,
+            Ok(r) => {
+                last_err = Some(ClientError::Api(format!(
+                    "下载失败: HTTP {}", r.status().as_u16()
+                )));
+                continue;
+            }
+            Err(e) => {
+                last_err = Some(ClientError::Http(e));
+                continue;
+            }
+        };
 
-    let mut file = std::fs::File::create(local_path)?;
-    let mut stream = response.bytes_stream();
-
-    use futures_util::StreamExt;
-    use std::io::Write;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        file.write_all(&chunk)?;
+        let total_size = response.content_length().unwrap_or(0);
         if let Some(pb) = progress_bar {
-            pb.inc(chunk.len() as u64);
+            pb.set_length(total_size);
+            pb.set_position(0);
+        }
+
+        use futures_util::StreamExt;
+        use std::io::Write;
+        let file = std::fs::File::create(&tmp_path)?;
+        let mut writer = std::io::BufWriter::with_capacity(256 * 1024, file);
+        let mut stream = response.bytes_stream();
+        let mut download_ok = true;
+
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(data) => {
+                    if let Err(e) = writer.write_all(&data) {
+                        last_err = Some(ClientError::Io(e));
+                        download_ok = false;
+                        break;
+                    }
+                    if let Some(pb) = progress_bar {
+                        pb.inc(data.len() as u64);
+                    }
+                }
+                Err(e) => {
+                    last_err = Some(ClientError::Http(e));
+                    download_ok = false;
+                    break;
+                }
+            }
+        }
+
+        if download_ok {
+            if let Err(e) = writer.flush() {
+                last_err = Some(ClientError::Io(e));
+                continue;
+            }
+            drop(writer);
+            // 原子 rename
+            std::fs::rename(&tmp_path, local_path)?;
+            if let Some(pb) = progress_bar {
+                pb.set_position(total_size);
+            }
+            last_err = None;
+            break;
         }
     }
 
-    if let Some(pb) = progress_bar {
-        pb.set_position(total_size);
+    // 清理临时文件
+    let _ = std::fs::remove_file(&tmp_path);
+
+    if let Some(err) = last_err {
+        return Err(err);
     }
 
     Ok(())
@@ -2220,6 +2285,9 @@ async fn execute_personal(
         // Build HTTP client pool (multi-net or single)
         let default_client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(std::time::Duration::from_secs(30))
+            .tcp_keepalive(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_default();
         let client_pool: Arc<Vec<reqwest::Client>> = Arc::new(match &net_pool {
@@ -2281,7 +2349,9 @@ async fn execute_personal(
             let overall_pb = overall_pb.clone();
 
             async move {
-                let http_client = api::HttpClientWrapper::new();
+                let http_client = api::HttpClientWrapper::with_client(
+                    http_client_shared.client.clone(),
+                );
                 let result = scan_and_dispatch_bfs_personal(
                     &config,
                     &host,
@@ -2417,6 +2487,7 @@ async fn execute_personal(
         // --- Download consumer ---
         let downloader = {
             let config = Arc::clone(&config);
+            let host = Arc::clone(&host);
             let local_root = Arc::clone(&local_root);
             let downloaded = Arc::clone(&downloaded);
             let uploaded = Arc::clone(&uploaded);
@@ -2434,6 +2505,7 @@ async fn execute_personal(
 
                 while let Some(job) = download_rx.recv().await {
                     let config = Arc::clone(&config);
+                    let host = Arc::clone(&host);
                     let local_root = Arc::clone(&local_root);
                     let downloaded = Arc::clone(&downloaded);
                     let uploaded = Arc::clone(&uploaded);
@@ -2465,10 +2537,12 @@ async fn execute_personal(
 
                         let result = download_file_personal(
                             &config,
+                            &host,
                             &job.file_id,
                             &local_file,
                             Some(&pb),
                             &http_client,
+                            retries,
                         )
                         .await;
 

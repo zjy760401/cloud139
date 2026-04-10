@@ -356,6 +356,7 @@ dependencies = [
  "async-recursion",
  "async-trait",
  "base64",
+ "bytes",
  "cbc",
  "chrono",
  "cipher 0.5.1",

@@ -182,7 +182,7 @@ pub fn calc_file_hash(path: &str) -> Result<String, std::io::Error> {
 
     let mut file = File::open(path)?;
     let mut hasher = sha1::Sha1::new();
-    let mut buffer = [0u8; 8192];
+    let mut buffer = vec![0u8; 2 * 1024 * 1024];
 
     loop {
         let bytes_read = file.read(&mut buffer)?;
@@ -201,7 +201,7 @@ pub fn calc_file_sha256(path: &str) -> Result<String, std::io::Error> {
 
     let mut file = File::open(path)?;
     let mut hasher = sha2::Sha256::new();
-    let mut buffer = [0u8; 8192];
+    let mut buffer = vec![0u8; 2 * 1024 * 1024];
 
     loop {
         let bytes_read = file.read(&mut buffer)?;
