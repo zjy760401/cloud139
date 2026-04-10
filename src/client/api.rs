@@ -579,8 +579,16 @@ pub async fn get_personal_download_link(
     config: &Config,
     file_id: &str,
 ) -> Result<String, ClientError> {
+    get_personal_download_link_with_client(config, file_id, &HttpClientWrapper::new()).await
+}
+
+pub async fn get_personal_download_link_with_client(
+    config: &Config,
+    file_id: &str,
+    http_client: &HttpClientWrapper,
+) -> Result<String, ClientError> {
     let mut config = config.clone();
-    let host = get_personal_cloud_host(&mut config).await?;
+    let host = get_personal_cloud_host_with_client(&mut config, http_client).await?;
     let url = format!("{}/file/getDownloadUrl", host);
 
     let body = serde_json::json!({
@@ -588,7 +596,7 @@ pub async fn get_personal_download_link(
     });
 
     let resp: serde_json::Value =
-        personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+        personal_api_request_with_client(&config, &url, body, crate::client::StorageType::PersonalNew, http_client).await?;
 
     let cdn_url = resp
         .pointer("/data/cdnUrl")

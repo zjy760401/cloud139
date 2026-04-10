@@ -1462,6 +1462,8 @@ async fn upload_file_personal(
     progress_bar: Option<&indicatif::ProgressBar>,
     http_client: &reqwest::Client,
 ) -> Result<(), ClientError> {
+    let client_wrapper = api::HttpClientWrapper::with_client(http_client.clone());
+
     let metadata = std::fs::metadata(local_file)?;
     let file_size = metadata.len() as i64;
 
@@ -1517,7 +1519,7 @@ async fn upload_file_personal(
     });
 
     let resp: crate::models::PersonalUploadResp =
-        api::personal_api_request(config, &url, body, StorageType::PersonalNew).await?;
+        api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, &client_wrapper).await?;
 
     if !resp.base.success {
         return Err(ClientError::Api(format!(
@@ -1578,6 +1580,8 @@ async fn upload_parts_personal(
     use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::Ordering;
 
+    let client_wrapper = api::HttpClientWrapper::with_client(http_client.clone());
+
     let part_count = (file_size + part_size - 1) / part_size;
     let mut upload_urls: HashMap<i32, String> = HashMap::new();
 
@@ -1612,7 +1616,7 @@ async fn upload_parts_personal(
         });
 
         let resp_json: serde_json::Value =
-            api::personal_api_request(config, &url, body, StorageType::PersonalNew).await?;
+            api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, &client_wrapper).await?;
 
         if let Some(part_infos) = resp_json
             .get("data")
@@ -1878,7 +1882,7 @@ async fn upload_parts_personal(
     });
 
     let resp: serde_json::Value =
-        api::personal_api_request(config, &complete_url, body, StorageType::PersonalNew).await?;
+        api::personal_api_request_with_client(config, &complete_url, body, StorageType::PersonalNew, &client_wrapper).await?;
 
     if let Some(false) = resp.get("success").and_then(|s| s.as_bool()) {
         let message = resp
@@ -1901,7 +1905,8 @@ async fn download_file_personal(
     progress_bar: Option<&indicatif::ProgressBar>,
     http_client: &reqwest::Client,
 ) -> Result<(), ClientError> {
-    let download_url = api::get_personal_download_link(config, file_id).await?;
+    let client_wrapper = api::HttpClientWrapper::with_client(http_client.clone());
+    let download_url = api::get_personal_download_link_with_client(config, file_id, &client_wrapper).await?;
     if download_url.is_empty() {
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
