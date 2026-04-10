@@ -352,6 +352,8 @@ async fn build_multi_net_pool() -> Option<Arc<NetClientPool>> {
         let client = reqwest::Client::builder()
             .local_address(std::net::IpAddr::V4(*local_ip))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .no_gzip()
+            .no_deflate()
             .build()
             .ok()?;
         clients.push((format!("{} ({})", iface, local_ip), client));
@@ -1759,25 +1761,16 @@ async fn upload_parts_personal(
             .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
         let content_len = buffer.len();
-        let pb_clone = progress_bar.cloned();
 
-        // Stream the buffer in 256KB chunks with real-time progress
-        let stream =
-            futures_util::stream::unfold((0usize, buffer, pb_clone), |(pos, buf, pb)| async move {
-                if pos >= buf.len() {
-                    return None;
-                }
-                let end = std::cmp::min(pos + 256 * 1024, buf.len());
-                let chunk = buf[pos..end].to_vec();
-                if let Some(ref pb) = pb {
-                    pb.inc((end - pos) as u64);
-                }
-                Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
-            });
+        // 进度在读完分片后立即更新（不在发送时流式更新，避免 chunked transfer）
+        if let Some(ref pb) = progress_bar {
+            pb.inc(content_len as u64);
+        }
 
-        // 动态超时：按分片大小计算，假设最低 100KB/s，最少 60 秒
-        let timeout_secs = std::cmp::max(60, (content_len as u64 / (100 * 1024)) + 60);
+        // 动态超时：按 200KB/s 预估，最少 120 秒
+        let timeout_secs = std::cmp::max(120, (content_len as u64 / (200 * 1024)) + 120);
 
+        // 直接发送完整 buffer，确保 reqwest 以已知 Content-Length 发送（非 chunked）
         let resp = http_client
             .put(&upload_url)
             .header("Content-Type", "application/octet-stream")
@@ -1785,7 +1778,7 @@ async fn upload_parts_personal(
             .header("Origin", "https://yun.139.com")
             .header("Referer", "https://yun.139.com/")
             .timeout(std::time::Duration::from_secs(timeout_secs))
-            .body(reqwest::Body::wrap_stream(stream))
+            .body(buffer)
             .send()
             .await;
 
@@ -2016,6 +2009,8 @@ async fn execute_personal(
         // Build HTTP client pool (multi-net or single)
         let default_client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .no_gzip()
+            .no_deflate()
             .build()
             .unwrap_or_default();
         let client_pool: Arc<Vec<reqwest::Client>> = Arc::new(match &net_pool {
@@ -2550,6 +2545,8 @@ async fn execute_personal(
 
     let default_client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .no_gzip()
+        .no_deflate()
         .build()
         .unwrap_or_default();
     let client_pool: Arc<Vec<reqwest::Client>> = Arc::new(match &net_pool {
