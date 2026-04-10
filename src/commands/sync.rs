@@ -1589,7 +1589,13 @@ async fn upload_file_personal(
     let metadata = std::fs::metadata(local_file)?;
     let file_size = metadata.len() as i64;
 
-    let content_hash = crate::utils::crypto::calc_file_sha256(local_file.to_str().unwrap_or(""))?;
+    // spawn_blocking: 避免阻塞 tokio async worker（秒传场景下尤其关键）
+    let path_str = local_file.to_str().unwrap_or("").to_string();
+    let content_hash = tokio::task::spawn_blocking(move || {
+        crate::utils::crypto::calc_file_sha256(&path_str)
+    })
+    .await
+    .map_err(|e| ClientError::Api(format!("SHA256 计算被中断: {}", e)))??;
 
     let part_size =
         crate::commands::upload::get_part_size(file_size, config.custom_upload_part_size);
