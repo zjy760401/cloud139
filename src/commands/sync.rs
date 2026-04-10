@@ -1576,6 +1576,7 @@ async fn upload_parts_personal(
     use std::collections::HashMap;
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
+    use std::sync::atomic::Ordering;
 
     let part_count = (file_size + part_size - 1) / part_size;
     let mut upload_urls: HashMap<i32, String> = HashMap::new();
@@ -1638,14 +1639,11 @@ async fn upload_parts_personal(
         let semaphore = Arc::new(tokio::sync::Semaphore::new(PARALLEL_PARTS));
         let first_error: Arc<std::sync::Mutex<Option<ClientError>>> =
             Arc::new(std::sync::Mutex::new(None));
+        // P3: 共享已上传字节计数，用于失败时精确回退进度
+        let uploaded_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let mut join_set = tokio::task::JoinSet::new();
 
         for i in 0..part_count {
-            // 如果已有分片失败，跳过后续分片
-            if first_error.lock().unwrap().is_some() {
-                break;
-            }
-
             let read_size = if (i + 1) * part_size > file_size {
                 file_size - i * part_size
             } else {
@@ -1657,40 +1655,76 @@ async fn upload_parts_personal(
                 .cloned()
                 .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
-            // spawn_blocking 读取分片数据，避免阻塞 async worker
+            // P1: 将文件读取移入 spawn，在 semaphore.acquire() 之后才读
+            //     同时驻留内存 ≤ PARALLEL_PARTS × part_size
             let local_path = local_path.to_path_buf();
             let offset = i as u64 * part_size as u64;
-            let buffer = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, ClientError> {
-                let mut file = File::open(&local_path)?;
-                file.seek(SeekFrom::Start(offset))?;
-                let mut buf = vec![0u8; read_size as usize];
-                file.read_exact(&mut buf)?;
-                Ok(buf)
-            })
-            .await
-            .map_err(|e| ClientError::Other(e.to_string()))??;
-
             let http_client = http_client.clone();
             let pb = pb.clone();
             let semaphore = Arc::clone(&semaphore);
             let first_error = Arc::clone(&first_error);
+            let uploaded_bytes = Arc::clone(&uploaded_bytes);
 
             join_set.spawn(async move {
                 let _permit = semaphore.acquire().await.unwrap();
 
+                // P1: 获取 permit 后再检查是否已有失败，避免无用 I/O
+                if first_error.lock().unwrap().is_some() {
+                    return;
+                }
+
+                // P1: 获取 permit 后才读文件
+                let buffer = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, ClientError> {
+                    let mut file = File::open(&local_path)?;
+                    file.seek(SeekFrom::Start(offset))?;
+                    let mut buf = vec![0u8; read_size as usize];
+                    file.read_exact(&mut buf)?;
+                    Ok(buf)
+                })
+                .await;
+
+                let buffer = match buffer {
+                    Ok(Ok(buf)) => buf,
+                    Ok(Err(e)) => {
+                        let mut guard = first_error.lock().unwrap();
+                        if guard.is_none() {
+                            *guard = Some(e);
+                        }
+                        return;
+                    }
+                    Err(e) => {
+                        let mut guard = first_error.lock().unwrap();
+                        if guard.is_none() {
+                            *guard = Some(ClientError::Other(e.to_string()));
+                        }
+                        return;
+                    }
+                };
+
                 let content_len = buffer.len();
+                // P3: 跟踪本分片已上报的进度字节
+                let part_sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                let part_sent_stream = Arc::clone(&part_sent);
+                let uploaded_bytes_stream = Arc::clone(&uploaded_bytes);
                 let stream = futures_util::stream::unfold(
-                    (0usize, buffer, pb),
-                    |(pos, buf, pb)| async move {
-                        if pos >= buf.len() {
-                            return None;
+                    (0usize, buffer, pb.clone()),
+                    move |(pos, buf, pb)| {
+                        let part_sent = Arc::clone(&part_sent_stream);
+                        let uploaded_bytes = Arc::clone(&uploaded_bytes_stream);
+                        async move {
+                            if pos >= buf.len() {
+                                return None;
+                            }
+                            let end = std::cmp::min(pos + 256 * 1024, buf.len());
+                            let chunk = buf[pos..end].to_vec();
+                            let delta = (end - pos) as u64;
+                            if let Some(ref pb) = pb {
+                                pb.inc(delta);
+                            }
+                            part_sent.fetch_add(delta, Ordering::Relaxed);
+                            uploaded_bytes.fetch_add(delta, Ordering::Relaxed);
+                            Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
                         }
-                        let end = std::cmp::min(pos + 256 * 1024, buf.len());
-                        let chunk = buf[pos..end].to_vec();
-                        if let Some(ref pb) = pb {
-                            pb.inc((end - pos) as u64);
-                        }
-                        Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
                     },
                 );
 
@@ -1715,6 +1749,12 @@ async fn upload_parts_personal(
                             part_number,
                             r.status().as_u16()
                         ));
+                        // P3: 回退本分片已上报的进度
+                        let rollback = part_sent.load(Ordering::Relaxed);
+                        uploaded_bytes.fetch_sub(rollback, Ordering::Relaxed);
+                        if let Some(ref pb) = pb {
+                            pb.set_position(uploaded_bytes.load(Ordering::Relaxed));
+                        }
                         let mut guard = first_error.lock().unwrap();
                         if guard.is_none() {
                             *guard = Some(err);
@@ -1725,6 +1765,12 @@ async fn upload_parts_personal(
                             "分片 {} 上传失败: {}",
                             part_number, e
                         ));
+                        // P3: 回退本分片已上报的进度
+                        let rollback = part_sent.load(Ordering::Relaxed);
+                        uploaded_bytes.fetch_sub(rollback, Ordering::Relaxed);
+                        if let Some(ref pb) = pb {
+                            pb.set_position(uploaded_bytes.load(Ordering::Relaxed));
+                        }
                         let mut guard = first_error.lock().unwrap();
                         if guard.is_none() {
                             *guard = Some(err);
@@ -1734,7 +1780,18 @@ async fn upload_parts_personal(
             });
         }
 
-        while join_set.join_next().await.is_some() {}
+        // P2: 检查 JoinError（task panic 或被取消）
+        while let Some(result) = join_set.join_next().await {
+            if let Err(join_err) = result {
+                let mut guard = first_error.lock().unwrap();
+                if guard.is_none() {
+                    *guard = Some(ClientError::Other(format!(
+                        "上传任务异常终止: {}",
+                        join_err
+                    )));
+                }
+            }
+        }
 
         // 检查是否有分片失败
         if let Some(err) = first_error.lock().unwrap().take() {
