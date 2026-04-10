@@ -1523,8 +1523,31 @@ async fn upload_file_personal(
         "fileRenameMode": "auto_rename"
     });
 
-    let resp: crate::models::PersonalUploadResp =
-        api::personal_api_request_with_client(config, &url, body, StorageType::PersonalNew, &client_wrapper).await?;
+    let mut last_err: Option<ClientError> = None;
+    let mut resp_ok: Option<crate::models::PersonalUploadResp> = None;
+    for attempt in 0..=retries {
+        if attempt > 0 {
+            let delay = std::time::Duration::from_secs(1 << attempt.min(4));
+            tokio::time::sleep(delay).await;
+        }
+
+        match api::personal_api_request_with_client(config, &url, body.clone(), StorageType::PersonalNew, &client_wrapper).await {
+            Ok(r) => {
+                resp_ok = Some(r);
+                last_err = None;
+                break;
+            }
+            Err(e) => {
+                last_err = Some(e);
+            }
+        }
+    }
+
+    if let Some(err) = last_err {
+        return Err(err);
+    }
+
+    let resp = resp_ok.unwrap();
 
     if !resp.base.success {
         return Err(ClientError::Api(format!(
