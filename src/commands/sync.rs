@@ -52,7 +52,6 @@ pub enum SyncMode {
     UploadOnly,
     DownloadOnly,
     TwoWay,
-    Interactive,
 }
 
 // ---------------------------------------------------------------------------
@@ -100,24 +99,6 @@ pub struct DiffEntry {
     pub local: Option<LocalFileEntry>,
     pub remote: Option<RemoteFileEntry>,
     pub is_dir: bool,
-}
-
-/// 用户对单个文件的决策
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UserAction {
-    Download,
-    Upload,
-    Skip,
-    /// 双向同步：根据差异类型自动决定上传或下载
-    Sync,
-}
-
-/// 根据差异类型自动选择同步方向
-fn auto_sync_action(kind: &DiffKind) -> UserAction {
-    match kind {
-        DiffKind::OnlyLocal | DiffKind::LocalNewer => UserAction::Upload,
-        DiffKind::OnlyRemote | DiffKind::RemoteNewer => UserAction::Download,
-    }
 }
 
 /// 流水线上传任务（scanner → upload consumer）
@@ -1043,8 +1024,8 @@ async fn scan_and_dispatch_bfs_personal(
     local_entries: &[LocalFileEntry],
     exclude_patterns: &[String],
     sync_mode: SyncMode,
-    upload_tx: &tokio::sync::mpsc::Sender<UploadJob>,
-    download_tx: &tokio::sync::mpsc::Sender<DownloadJob>,
+    upload_tx: &tokio::sync::mpsc::UnboundedSender<UploadJob>,
+    download_tx: &tokio::sync::mpsc::UnboundedSender<DownloadJob>,
     scan_pb: &indicatif::ProgressBar,
     overall_pb: &indicatif::ProgressBar,
     http_client: &api::HttpClientWrapper,
@@ -1156,8 +1137,7 @@ async fn scan_and_dispatch_bfs_personal(
                                         relative_path: rf.relative_path.clone(),
                                         file_id: rf.file_id.clone(),
                                         est_size: rf.size,
-                                    })
-                                    .await;
+                                    });
                                 overall_pb.inc_length(1);
                                 download_dispatched += 1;
                             } else {
@@ -1175,8 +1155,7 @@ async fn scan_and_dispatch_bfs_personal(
                             relative_path: rf.relative_path.clone(),
                             file_id: rf.file_id.clone(),
                             est_size: rf.size,
-                        })
-                        .await;
+                        });
                     overall_pb.inc_length(1);
                     download_dispatched += 1;
                 } else {
@@ -1207,8 +1186,7 @@ async fn scan_and_dispatch_bfs_personal(
                         parent_id: parent_id.clone(),
                         file_name,
                         file_size: size,
-                    })
-                    .await;
+                    });
                 overall_pb.inc_length(1);
                 upload_dispatched += 1;
             }
@@ -1271,8 +1249,7 @@ async fn scan_and_dispatch_bfs_personal(
                                         parent_id: parent_id.clone(),
                                         file_name: fname,
                                         file_size: size,
-                                    })
-                                    .await;
+                                    });
                                 overall_pb.inc_length(1);
                                 upload_dispatched += 1;
                             }
@@ -1316,8 +1293,7 @@ async fn scan_and_dispatch_bfs_personal(
                                     relative_path: rf.relative_path.clone(),
                                     file_id: rf.file_id.clone(),
                                     est_size: rf.size,
-                                })
-                                .await;
+                                });
                             overall_pb.inc_length(1);
                             download_dispatched += 1;
                         }
@@ -1330,104 +1306,6 @@ async fn scan_and_dispatch_bfs_personal(
     }
 
     Ok((upload_dispatched, download_dispatched, skipped))
-}
-
-// ---------------------------------------------------------------------------
-// Interactive prompt
-// ---------------------------------------------------------------------------
-
-/// 交互式询问用户对差异文件的操作决策
-pub fn prompt_interactive(diffs: &[DiffEntry]) -> Result<Vec<(usize, UserAction)>, ClientError> {
-    use dialoguer::Select;
-
-    let mut decisions = Vec::new();
-    let mut global_action: Option<UserAction> = None;
-
-    for (i, diff) in diffs.iter().enumerate() {
-        if let Some(action) = global_action {
-            let resolved = match action {
-                UserAction::Sync => auto_sync_action(&diff.kind),
-                UserAction::Upload => match diff.kind {
-                    DiffKind::OnlyLocal | DiffKind::LocalNewer => UserAction::Upload,
-                    DiffKind::OnlyRemote | DiffKind::RemoteNewer => UserAction::Skip,
-                },
-                UserAction::Download => match diff.kind {
-                    DiffKind::OnlyRemote | DiffKind::RemoteNewer => UserAction::Download,
-                    DiffKind::OnlyLocal | DiffKind::LocalNewer => UserAction::Skip,
-                },
-                _ => action,
-            };
-            decisions.push((i, resolved));
-            continue;
-        }
-
-        let kind_desc = match &diff.kind {
-            DiffKind::OnlyLocal => "仅本地存在",
-            DiffKind::OnlyRemote => "仅远程存在",
-            DiffKind::LocalNewer => "本地较新",
-            DiffKind::RemoteNewer => "远程较新",
-        };
-
-        let size_info = if let Some(ref local) = diff.local {
-            format!("本地: {} bytes", local.size)
-        } else if let Some(ref remote) = diff.remote {
-            format!("远程: {} bytes", remote.size)
-        } else {
-            String::new()
-        };
-
-        println!("\n  {} [{}] ({})", diff.relative_path, kind_desc, size_info);
-
-        let items = vec![
-            "始终只下载（本地 ← 远程）",
-            "始终只上传（本地 → 远程）",
-            "始终同步（本地 ↔ 远程）",
-            "下载（本地 ← 远程）",
-            "上传（本地 → 远程）",
-            "跳过此文件",
-        ];
-
-        let default = match &diff.kind {
-            DiffKind::OnlyLocal | DiffKind::LocalNewer => 4,
-            DiffKind::OnlyRemote | DiffKind::RemoteNewer => 3,
-        };
-
-        let selection = Select::new()
-            .with_prompt("请选择操作")
-            .items(&items)
-            .default(default)
-            .interact()
-            .map_err(|e| ClientError::Other(format!("交互输入错误: {}", e)))?;
-
-        match selection {
-            0 => {
-                global_action = Some(UserAction::Download);
-                let resolved = match diff.kind {
-                    DiffKind::OnlyRemote | DiffKind::RemoteNewer => UserAction::Download,
-                    DiffKind::OnlyLocal | DiffKind::LocalNewer => UserAction::Skip,
-                };
-                decisions.push((i, resolved));
-            }
-            1 => {
-                global_action = Some(UserAction::Upload);
-                let resolved = match diff.kind {
-                    DiffKind::OnlyLocal | DiffKind::LocalNewer => UserAction::Upload,
-                    DiffKind::OnlyRemote | DiffKind::RemoteNewer => UserAction::Skip,
-                };
-                decisions.push((i, resolved));
-            }
-            2 => {
-                global_action = Some(UserAction::Sync);
-                decisions.push((i, auto_sync_action(&diff.kind)));
-            }
-            3 => decisions.push((i, UserAction::Download)),
-            4 => decisions.push((i, UserAction::Upload)),
-            5 => decisions.push((i, UserAction::Skip)),
-            _ => decisions.push((i, UserAction::Skip)),
-        }
-    }
-
-    Ok(decisions)
 }
 
 // ---------------------------------------------------------------------------
@@ -1587,7 +1465,15 @@ async fn upload_file_personal(
     let metadata = std::fs::metadata(local_file)?;
     let file_size = metadata.len() as i64;
 
-    let content_hash = crate::utils::crypto::calc_file_sha256(local_file.to_str().unwrap_or(""))?;
+    // spawn_blocking: 避免阻塞 tokio async worker（大文件 SHA256 计算耗时）
+    let content_hash = {
+        let path = local_file.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            crate::utils::crypto::calc_file_sha256(path.to_str().unwrap_or(""))
+        })
+        .await
+        .map_err(|e| ClientError::Other(e.to_string()))??
+    };
 
     let part_size =
         crate::commands::upload::get_part_size(file_size, config.custom_upload_part_size);
@@ -1775,8 +1661,8 @@ async fn upload_parts_personal(
                 Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
             });
 
-        // 动态超时：按分片大小计算，假设最低 100KB/s，最少 60 秒
-        let timeout_secs = std::cmp::max(60, (content_len as u64 / (100 * 1024)) + 60);
+        // 动态超时：按分片大小计算，假设最低 200KB/s，最少 120 秒
+        let timeout_secs = std::cmp::max(120, (content_len as u64 / (200 * 1024)) + 120);
 
         let resp = http_client
             .put(&upload_url)
@@ -1917,7 +1803,22 @@ pub async fn execute(args: SyncArgs) -> Result<(), ClientError> {
     } else if args.two_way {
         SyncMode::TwoWay
     } else {
-        SyncMode::Interactive
+        let items = vec![
+            "仅上传（本地 → 远程）",
+            "仅下载（远程 → 本地）",
+            "双向同步（本地 ↔ 远程）",
+        ];
+        let selection = dialoguer::Select::new()
+            .with_prompt("请选择同步模式")
+            .items(&items)
+            .default(0)
+            .interact()
+            .map_err(|e| ClientError::Other(format!("交互输入错误: {}", e)))?;
+        match selection {
+            0 => SyncMode::UploadOnly,
+            1 => SyncMode::DownloadOnly,
+            _ => SyncMode::TwoWay,
+        }
     };
 
     // macOS 自动排除系统隐藏文件
@@ -1934,7 +1835,27 @@ pub async fn execute(args: SyncArgs) -> Result<(), ClientError> {
         None
     };
 
-    let config = crate::config::Config::load().map_err(ClientError::Config)?;
+    let config = match crate::config::Config::load() {
+        Ok(c) => c,
+        Err(crate::config::ConfigError::NotFound) => {
+            info!("未检测到登录信息，请先输入 Authorization Token");
+            info!("（从浏览器开发者工具 → Network → 任意请求 → Headers → Authorization 获取）");
+            let token: String = dialoguer::Input::new()
+                .with_prompt("Token")
+                .interact_text()
+                .map_err(|e| ClientError::Other(format!("输入错误: {}", e)))?;
+            let token = token
+                .strip_prefix("Basic ")
+                .map(|s| s.to_string())
+                .unwrap_or(token);
+            let config =
+                crate::client::auth::login(&token, "personal_new", None).await?;
+            config.save()?;
+            success!("Token 验证成功，配置已保存");
+            config
+        }
+        Err(e) => return Err(ClientError::Config(e)),
+    };
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -1978,9 +1899,15 @@ async fn execute_personal(
         info!("已创建本地目录: {}", local_path);
     }
 
-    // Step 1: Scan local
+    // Step 1: Scan local (spawn_blocking: 避免阻塞 tokio async worker)
     step!("扫描本地目录: {}", local_path);
-    let local_entries = scan_local_tree(local_root, &args.exclude)?;
+    let local_entries = tokio::task::spawn_blocking({
+        let root = local_root.to_path_buf();
+        let exclude = args.exclude.clone();
+        move || scan_local_tree(&root, &exclude)
+    })
+    .await
+    .map_err(|e| ClientError::Other(e.to_string()))??;
     let local_file_count = local_entries.iter().filter(|e| !e.is_dir).count();
     let local_dir_count = local_entries.iter().filter(|e| e.is_dir).count();
     info!(
@@ -1989,9 +1916,55 @@ async fn execute_personal(
     );
 
     // ===================================================================
-    // Streaming pipeline for auto modes (non-interactive, non-dry-run)
+    // Dry-run: 全量扫描 + 预览
     // ===================================================================
-    if !args.dry_run && sync_mode != SyncMode::Interactive {
+    if args.dry_run {
+        step!("扫描远程目录并计算差异: {}", remote_path);
+        let (diffs, _remote_entries, remote_file_count, remote_dir_count) =
+            scan_and_diff_bfs_personal(config, remote_path, &local_entries, &args.exclude).await?;
+        info!(
+            "远程: {} 个文件, {} 个目录",
+            remote_file_count, remote_dir_count
+        );
+
+        if diffs.is_empty() {
+            success!("本地与远程目录完全一致，无需同步");
+            return Ok(());
+        }
+
+        let only_local = diffs.iter().filter(|d| matches!(d.kind, DiffKind::OnlyLocal)).count();
+        let only_remote = diffs.iter().filter(|d| matches!(d.kind, DiffKind::OnlyRemote)).count();
+        let modified = diffs.iter().filter(|d| matches!(d.kind, DiffKind::LocalNewer | DiffKind::RemoteNewer)).count();
+        info!("差异: {} 仅本地, {} 仅远程, {} 已修改", only_local, only_remote, modified);
+
+        let actions: Vec<(&DiffEntry, &str)> = diffs
+            .iter()
+            .filter_map(|d| {
+                let label = match (&sync_mode, &d.kind) {
+                    (SyncMode::UploadOnly, DiffKind::OnlyLocal | DiffKind::LocalNewer) => "↑ 上传",
+                    (SyncMode::DownloadOnly, DiffKind::OnlyRemote | DiffKind::RemoteNewer) => "↓ 下载",
+                    (SyncMode::TwoWay, DiffKind::OnlyLocal | DiffKind::LocalNewer) => "↑ 上传",
+                    (SyncMode::TwoWay, DiffKind::OnlyRemote | DiffKind::RemoteNewer) => "↓ 下载",
+                    _ => return None,
+                };
+                Some((d, label))
+            })
+            .collect();
+
+        println!("\n--- 预览模式 (dry-run) ---");
+        for (diff, label) in &actions {
+            println!("  {} {}", label, diff.relative_path);
+        }
+        let upload_count = actions.iter().filter(|(_, l)| l.starts_with('↑')).count();
+        let download_count = actions.iter().filter(|(_, l)| l.starts_with('↓')).count();
+        info!("预览: 将上传 {} 个文件, 下载 {} 个文件", upload_count, download_count);
+        return Ok(());
+    }
+
+    // ===================================================================
+    // Streaming pipeline
+    // ===================================================================
+    {
         use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
         use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -2007,11 +1980,11 @@ async fn execute_personal(
 
         let concurrency = args.concurrency;
 
-        // Channels: scanner → consumers
+        // Channels: scanner → consumers（unbounded: 背压由 semaphore 控制，send 永不阻塞）
         let (upload_tx, mut upload_rx) =
-            tokio::sync::mpsc::channel::<UploadJob>(concurrency * 2);
+            tokio::sync::mpsc::unbounded_channel::<UploadJob>();
         let (download_tx, mut download_rx) =
-            tokio::sync::mpsc::channel::<DownloadJob>(concurrency * 2);
+            tokio::sync::mpsc::unbounded_channel::<DownloadJob>();
 
         // Build HTTP client pool (multi-net or single)
         let default_client = reqwest::Client::builder()
@@ -2325,522 +2298,8 @@ async fn execute_personal(
             }
         }
 
-        return Ok(());
+        Ok(())
     }
-
-    // ===================================================================
-    // Batched flow for interactive / dry-run modes
-    // ===================================================================
-
-    // Step 2: BFS 扫描远程并同时计算差异
-    step!("扫描远程目录并计算差异: {}", remote_path);
-    let (diffs, remote_entries, remote_file_count, remote_dir_count) =
-        scan_and_diff_bfs_personal(config, remote_path, &local_entries, &args.exclude).await?;
-    info!(
-        "远程: {} 个文件, {} 个目录",
-        remote_file_count, remote_dir_count
-    );
-
-    if diffs.is_empty() {
-        success!("本地与远程目录完全一致，无需同步");
-        return Ok(());
-    }
-
-    let only_local_count = diffs
-        .iter()
-        .filter(|d| matches!(d.kind, DiffKind::OnlyLocal))
-        .count();
-    let only_remote_count = diffs
-        .iter()
-        .filter(|d| matches!(d.kind, DiffKind::OnlyRemote))
-        .count();
-    let modified_count = diffs
-        .iter()
-        .filter(|d| matches!(d.kind, DiffKind::LocalNewer | DiffKind::RemoteNewer))
-        .count();
-
-    info!(
-        "差异: {} 仅本地, {} 仅远程, {} 已修改",
-        only_local_count, only_remote_count, modified_count
-    );
-
-    // Step 4: Determine actions
-    let actions: Vec<(usize, UserAction)> = match sync_mode {
-        SyncMode::UploadOnly => diffs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, d)| match d.kind {
-                DiffKind::OnlyLocal | DiffKind::LocalNewer => Some((i, UserAction::Upload)),
-                _ => None,
-            })
-            .collect(),
-        SyncMode::DownloadOnly => diffs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, d)| match d.kind {
-                DiffKind::OnlyRemote | DiffKind::RemoteNewer => Some((i, UserAction::Download)),
-                _ => None,
-            })
-            .collect(),
-        SyncMode::TwoWay => diffs
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                let action = match d.kind {
-                    DiffKind::OnlyLocal | DiffKind::LocalNewer => UserAction::Upload,
-                    DiffKind::OnlyRemote | DiffKind::RemoteNewer => UserAction::Download,
-                };
-                (i, action)
-            })
-            .collect(),
-        SyncMode::Interactive => {
-            if args.dry_run {
-                diffs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, d)| {
-                        let action = match d.kind {
-                            DiffKind::OnlyLocal | DiffKind::LocalNewer => UserAction::Upload,
-                            DiffKind::OnlyRemote | DiffKind::RemoteNewer => UserAction::Download,
-                        };
-                        (i, action)
-                    })
-                    .collect()
-            } else {
-                prompt_interactive(&diffs)?
-            }
-        }
-    };
-
-    // Step 5: Dry run or execute
-    if args.dry_run {
-        println!("\n--- 预览模式 (dry-run) ---");
-        for (i, action) in &actions {
-            let diff = &diffs[*i];
-            let action_str = match action {
-                UserAction::Upload => "↑ 上传",
-                UserAction::Download => "↓ 下载",
-                UserAction::Skip => "- 跳过",
-                UserAction::Sync => "↔ 同步",
-            };
-            println!("  {} {}", action_str, diff.relative_path);
-        }
-        let upload_count = actions
-            .iter()
-            .filter(|(_, a)| *a == UserAction::Upload)
-            .count();
-        let download_count = actions
-            .iter()
-            .filter(|(_, a)| *a == UserAction::Download)
-            .count();
-        info!(
-            "预览: 将上传 {} 个文件, 下载 {} 个文件",
-            upload_count, download_count
-        );
-        return Ok(());
-    }
-
-    // Execute actions with parallel transfers and progress bar
-    let http_client_shared = api::HttpClientWrapper::new();
-    let mut config_mut = config.clone();
-    let host = api::get_personal_cloud_host_with_client(&mut config_mut, &http_client_shared).await?;
-
-    let remote_base_id = ensure_remote_root_personal(config, &host, remote_path, &http_client_shared).await?;
-
-    // Build remote file_id lookup (owned)
-    let remote_id_map: HashMap<String, String> = remote_entries
-        .iter()
-        .map(|e| (e.relative_path.clone(), e.file_id.clone()))
-        .collect();
-
-    // Separate upload and download actions; skip immediately counted
-    let mut upload_tasks: Vec<(usize, &DiffEntry)> = Vec::new();
-    let mut download_tasks: Vec<(usize, &DiffEntry)> = Vec::new();
-    let mut skipped = 0u32;
-
-    for (i, action) in &actions {
-        let diff = &diffs[*i];
-        match action {
-            UserAction::Upload => upload_tasks.push((*i, diff)),
-            UserAction::Download => download_tasks.push((*i, diff)),
-            UserAction::Skip => skipped += 1,
-            UserAction::Sync => {
-                match diff.kind {
-                    DiffKind::OnlyLocal | DiffKind::LocalNewer => upload_tasks.push((*i, diff)),
-                    DiffKind::OnlyRemote | DiffKind::RemoteNewer => download_tasks.push((*i, diff)),
-                }
-            }
-        }
-    }
-
-    let total_transfer = upload_tasks.len() + download_tasks.len();
-    if total_transfer == 0 {
-        success!("没有需要传输的文件 ({} 已跳过)", skipped);
-        return Ok(());
-    }
-
-    // Group upload tasks by parent directory for pipeline processing
-    let mut upload_by_dir: std::collections::BTreeMap<String, Vec<(String, String, i64)>> =
-        std::collections::BTreeMap::new();
-    for (_i, diff) in &upload_tasks {
-        let parent_rel = Path::new(&diff.relative_path)
-            .parent()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
-
-        let file_name = Path::new(&diff.relative_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        let local_file = local_root.join(&diff.relative_path);
-        let size = std::fs::metadata(&local_file)
-            .map(|m| m.len() as i64)
-            .unwrap_or(0);
-
-        upload_by_dir
-            .entry(parent_rel)
-            .or_default()
-            .push((diff.relative_path.clone(), file_name, size));
-    }
-
-    // Prepare download items
-    let download_items: Vec<(String, String)> = download_tasks
-        .iter()
-        .filter_map(|(_i, diff)| {
-            remote_id_map
-                .get(&diff.relative_path)
-                .map(|fid| (diff.relative_path.clone(), fid.clone()))
-        })
-        .collect();
-
-    let missing_ids = download_tasks.len() - download_items.len();
-
-    // Build a size lookup from remote_entries for progress bar length
-    let remote_size_map: HashMap<String, i64> = remote_entries
-        .iter()
-        .map(|e| (e.relative_path.clone(), e.size))
-        .collect();
-
-    // Log summary before progress bars take over the terminal
-    if !upload_tasks.is_empty() {
-        step!(
-            "开始流水线上传 ({} 个文件, 并行数: {})",
-            upload_tasks.len(),
-            args.concurrency
-        );
-    }
-    if !download_items.is_empty() {
-        step!(
-            "开始并行下载 ({} 个文件, 并行数: {})",
-            download_items.len(),
-            args.concurrency
-        );
-    }
-
-    // --- Progress bar setup (all println! after this point must go through mp) ---
-    use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    let config = Arc::new(config.clone());
-    let host = Arc::new(host);
-    let local_root = Arc::new(local_root.to_path_buf());
-    let concurrency = args.concurrency;
-
-    let default_client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .build()
-        .unwrap_or_default();
-    let client_pool: Arc<Vec<reqwest::Client>> = Arc::new(match &net_pool {
-        Some(pool) => pool.clients.iter().map(|(_, c)| c.clone()).collect(),
-        None => vec![default_client],
-    });
-    let client_index = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-    let mp = if crate::utils::logger::is_quiet() {
-        MultiProgress::with_draw_target(ProgressDrawTarget::hidden())
-    } else {
-        MultiProgress::new()
-    };
-
-    let overall_style =
-        ProgressStyle::with_template("{prefix} [{bar:30.cyan/dim}] {pos}/{len} ({percent}%) {msg}")
-            .unwrap()
-            .progress_chars("█▓░");
-
-    let overall_pb = mp.add(ProgressBar::new(total_transfer as u64));
-    overall_pb.set_style(overall_style);
-    overall_pb.set_prefix("\x1b[34msync\x1b[0m");
-    overall_pb.set_message("");
-
-    let task_style = ProgressStyle::with_template(
-        "     {prefix} [{bar:25.green/dim}] {bytes}/{total_bytes} {bytes_per_sec} {msg}",
-    )
-    .unwrap()
-    .progress_chars("━╸─");
-
-    let uploaded = Arc::new(AtomicU32::new(0));
-    let downloaded = Arc::new(AtomicU32::new(0));
-    let error_count = Arc::new(AtomicU32::new(0));
-    let failed_files: Arc<std::sync::Mutex<Vec<(String, String)>>> =
-        Arc::new(std::sync::Mutex::new(Vec::new()));
-
-    let upload_future = {
-        let config = Arc::clone(&config);
-        let host = Arc::clone(&host);
-        let local_root = Arc::clone(&local_root);
-        let uploaded = Arc::clone(&uploaded);
-        let error_count = Arc::clone(&error_count);
-        let failed_files = Arc::clone(&failed_files);
-        let client_pool = Arc::clone(&client_pool);
-        let client_index = Arc::clone(&client_index);
-        let task_style = task_style.clone();
-        let mp = mp.clone();
-        let overall_pb = overall_pb.clone();
-        let remote_base_id = remote_base_id.clone();
-
-        async move {
-            if upload_by_dir.is_empty() {
-                return;
-            }
-
-            let (tx, mut rx) =
-                tokio::sync::mpsc::channel::<(String, String, String, i64)>(concurrency * 2);
-
-            let producer = {
-                let config = Arc::clone(&config);
-                let host = Arc::clone(&host);
-                let http_client_for_dirs = api::HttpClientWrapper::new();
-
-                async move {
-                    let mut dir_id_cache: HashMap<String, String> = HashMap::new();
-
-                    for (dir, files) in upload_by_dir {
-                        let parent_id = if dir.is_empty() {
-                            remote_base_id.clone()
-                        } else {
-                            match ensure_remote_dir_personal_cached(
-                                &config,
-                                &host,
-                                &remote_base_id,
-                                &dir,
-                                &mut dir_id_cache,
-                                &http_client_for_dirs,
-                            )
-                            .await
-                            {
-                                Ok(id) => id,
-                                Err(e) => {
-                                    eprintln!(
-                                        "\x1b[31merror\x1b[0m 创建远程目录 '{}' 失败: {}",
-                                        dir, e
-                                    );
-                                    continue;
-                                }
-                            }
-                        };
-
-                        for (relative_path, file_name, size) in files {
-                            if tx
-                                .send((relative_path, parent_id.clone(), file_name, size))
-                                .await
-                                .is_err()
-                            {
-                                return;
-                            }
-                        }
-                    }
-                }
-            };
-
-            let consumer = {
-                async move {
-                    let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-                    let mut join_set = tokio::task::JoinSet::new();
-
-                    while let Some((relative_path, parent_id, file_name, file_size)) =
-                        rx.recv().await
-                    {
-                        let config = Arc::clone(&config);
-                        let host = Arc::clone(&host);
-                        let local_root = Arc::clone(&local_root);
-                        let uploaded = Arc::clone(&uploaded);
-                        let error_count = Arc::clone(&error_count);
-                        let failed_files = Arc::clone(&failed_files);
-                        let semaphore = Arc::clone(&semaphore);
-                        let task_style = task_style.clone();
-                        let mp = mp.clone();
-                        let overall_pb = overall_pb.clone();
-
-                        let idx =
-                            client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
-                        let http_client = client_pool[idx].clone();
-
-                        join_set.spawn(async move {
-                            let _permit = semaphore.acquire().await.unwrap();
-
-                            let pb = mp.insert_before(
-                                &overall_pb,
-                                ProgressBar::new(file_size as u64),
-                            );
-                            pb.set_style(task_style);
-                            let display_name = truncate_filename(&relative_path, 30);
-                            pb.set_prefix(format!("↑ {}", display_name));
-                            pb.set_position(0);
-
-                            let local_file = local_root.join(&relative_path);
-
-                            let result = upload_file_personal(
-                                &config,
-                                &host,
-                                &local_file,
-                                &parent_id,
-                                &file_name,
-                                Some(&pb),
-                                &http_client,
-                            )
-                            .await;
-
-                            match result {
-                                Ok(()) => {
-                                    pb.set_position(file_size as u64);
-                                    pb.finish_and_clear();
-                                    uploaded.fetch_add(1, Ordering::Relaxed);
-                                }
-                                Err(e) => {
-                                    let err_msg = e.to_string();
-                                    pb.abandon_with_message(format!("失败: {}", err_msg));
-                                    error_count.fetch_add(1, Ordering::Relaxed);
-                                    failed_files
-                                        .lock()
-                                        .unwrap()
-                                        .push((format!("↑ {}", relative_path), err_msg));
-                                }
-                            }
-                            overall_pb.inc(1);
-                        });
-                    }
-
-                    while join_set.join_next().await.is_some() {}
-                }
-            };
-
-            tokio::join!(producer, consumer);
-        }
-    };
-
-    let download_future = {
-        let config = Arc::clone(&config);
-        let local_root = Arc::clone(&local_root);
-        let downloaded = Arc::clone(&downloaded);
-        let error_count = Arc::clone(&error_count);
-        let failed_files = Arc::clone(&failed_files);
-        let client_pool = Arc::clone(&client_pool);
-        let client_index = Arc::clone(&client_index);
-        let task_style = task_style.clone();
-        let mp = mp.clone();
-        let overall_pb = overall_pb.clone();
-
-        async move {
-            if download_items.is_empty() {
-                return;
-            }
-
-            let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-            let mut join_set = tokio::task::JoinSet::new();
-
-            for (relative_path, file_id) in download_items {
-                let config = Arc::clone(&config);
-                let local_root = Arc::clone(&local_root);
-                let downloaded = Arc::clone(&downloaded);
-                let error_count = Arc::clone(&error_count);
-                let failed_files = Arc::clone(&failed_files);
-                let semaphore = Arc::clone(&semaphore);
-                let task_style = task_style.clone();
-                let mp = mp.clone();
-                let overall_pb = overall_pb.clone();
-
-                let est_size = remote_size_map.get(&relative_path).copied().unwrap_or(0) as u64;
-
-                let idx = client_index.fetch_add(1, Ordering::Relaxed) % client_pool.len();
-                let http_client = client_pool[idx].clone();
-
-                join_set.spawn(async move {
-                    let _permit = semaphore.acquire().await.unwrap();
-
-                    let pb = mp.insert_before(&overall_pb, ProgressBar::new(est_size));
-                    pb.set_style(task_style);
-                    let display_name = truncate_filename(&relative_path, 30);
-                    pb.set_prefix(format!("↓ {}", display_name));
-                    pb.set_position(0);
-
-                    let local_file = local_root.join(&relative_path);
-
-                    let result = download_file_personal(
-                        &config,
-                        &file_id,
-                        &local_file,
-                        Some(&pb),
-                        &http_client,
-                    )
-                    .await;
-
-                    match result {
-                        Ok(()) => {
-                            pb.finish_and_clear();
-                            downloaded.fetch_add(1, Ordering::Relaxed);
-                        }
-                        Err(e) => {
-                            let err_msg = e.to_string();
-                            pb.abandon_with_message(format!("失败: {}", err_msg));
-                            error_count.fetch_add(1, Ordering::Relaxed);
-                            failed_files
-                                .lock()
-                                .unwrap()
-                                .push((format!("↓ {}", relative_path), err_msg));
-                        }
-                    }
-                    overall_pb.inc(1);
-                });
-            }
-
-            while join_set.join_next().await.is_some() {}
-        }
-    };
-
-    tokio::join!(upload_future, download_future);
-
-    if missing_ids > 0 {
-        error_count.fetch_add(missing_ids as u32, Ordering::Relaxed);
-        overall_pb.inc(missing_ids as u64);
-    }
-
-    overall_pb.finish_and_clear();
-
-    let uploaded = uploaded.load(Ordering::Relaxed);
-    let downloaded = downloaded.load(Ordering::Relaxed);
-    let errors = error_count.load(Ordering::Relaxed);
-
-    println!();
-    success!(
-        "同步完成: ↑ {} 已上传, ↓ {} 已下载, {} 已跳过, {} 错误",
-        uploaded,
-        downloaded,
-        skipped,
-        errors
-    );
-
-    let failures = failed_files.lock().unwrap();
-    if !failures.is_empty() {
-        println!();
-        error!("以下文件传输失败:");
-        for (path, reason) in failures.iter() {
-            error!("  {} — {}", path, reason);
-        }
-    }
-
-    Ok(())
 }
 
 /// 截断文件名用于进度条显示
