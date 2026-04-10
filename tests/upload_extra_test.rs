@@ -15,7 +15,7 @@ fn test_get_part_size_small_file() {
     let size = 1024 * 1024; // 1MB
     let custom = 0;
     let result = upload::get_part_size(size, custom);
-    assert_eq!(result, 100 * 1024 * 1024); // default 100MB
+    assert_eq!(result, 20 * 1024 * 1024); // default 20MB
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn test_get_part_size_large_file() {
     let size = 31 * 1024 * 1024 * 1024; // 31GB
     let custom = 0;
     let result = upload::get_part_size(size, custom);
-    assert_eq!(result, 512 * 1024 * 1024); // 512MB for files > 30GB
+    assert_eq!(result, 20 * 1024 * 1024); // 20MB for all files
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn test_get_part_size_boundary_30gb() {
     let size = 30 * 1024 * 1024 * 1024; // exactly 30GB
     let custom = 0;
     let result = upload::get_part_size(size, custom);
-    assert_eq!(result, 100 * 1024 * 1024); // still default for 30GB
+    assert_eq!(result, 20 * 1024 * 1024); // 20MB for all files
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn test_get_part_size_just_over_30gb() {
     let size = 31 * 1024 * 1024 * 1024; // 31GB
     let custom = 0;
     let result = upload::get_part_size(size, custom);
-    assert_eq!(result, 512 * 1024 * 1024); // 512MB for > 30GB
+    assert_eq!(result, 20 * 1024 * 1024); // 20MB for all files
 }
 
 #[test]

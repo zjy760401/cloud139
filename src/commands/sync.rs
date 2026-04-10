@@ -1510,14 +1510,11 @@ async fn upload_file_personal(
         })
         .collect();
 
-    let use_parallel = file_size > 20 * 1024 * 1024; // > 20MiB
-
     let url = format!("{}/file/create", host);
     let body = serde_json::json!({
         "contentHash": content_hash,
         "contentHashAlgorithm": "SHA256",
-        "contentType": "application/octet-stream",
-        "parallelUpload": use_parallel,
+        "contentType": "application/oct-stream",
         "partInfos": first_part_infos,
         "size": file_size,
         "parentFileId": parent_file_id,

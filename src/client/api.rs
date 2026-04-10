@@ -80,7 +80,7 @@ pub async fn get_personal_cloud_host_with_client(
     );
     headers.insert("mcloud-version", "7.14.0".parse().unwrap());
     headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-    headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
+    headers.insert("Referer", "https://yun.139.com/w".parse().unwrap());
     headers.insert(
         "x-DeviceInfo",
         "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
@@ -310,9 +310,13 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
     headers.insert("x-yun-module-type", "100".parse().unwrap());
     headers.insert("x-yun-svc-type", "1".parse().unwrap());
     headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-    headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
+    headers.insert("Referer", "https://yun.139.com/w".parse().unwrap());
+    headers.insert(
+        "Content-Type",
+        "application/json;charset=UTF-8".parse().unwrap(),
+    );
 
-    let resp = client.post(url).headers(headers).json(&body).send().await?;
+    let resp = client.post(url).headers(headers).body(body.to_string()).send().await?;
 
     let status = resp.status();
     if !status.is_success() {

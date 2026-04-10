@@ -69,14 +69,11 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
+pub fn get_part_size(_size: i64, custom_size: i64) -> i64 {
     if custom_size != 0 {
         return custom_size;
     }
-    if size / (1024 * 1024 * 1024) > 30 {
-        return 512 * 1024 * 1024;
-    }
-    100 * 1024 * 1024
+    20 * 1024 * 1024
 }
 
 async fn upload_personal(
@@ -134,7 +131,7 @@ async fn upload_personal(
         })
         .collect();
 
-    let content_type = match local_path.extension().and_then(|e| e.to_str()) {
+    let _content_type = match local_path.extension().and_then(|e| e.to_str()) {
         Some("txt") => "text/plain",
         Some("html") | Some("htm") => "text/html",
         Some("css") => "text/css",
@@ -161,8 +158,7 @@ async fn upload_personal(
     let body = serde_json::json!({
         "contentHash": content_hash,
         "contentHashAlgorithm": "SHA256",
-        "contentType": content_type,
-        "parallelUpload": false,
+        "contentType": "application/oct-stream",
         "partInfos": first_part_infos,
         "size": file_size,
         "parentFileId": parent_file_id,
