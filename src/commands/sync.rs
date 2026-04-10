@@ -42,6 +42,13 @@ pub struct SyncArgs {
     )]
     pub concurrency: usize,
 
+    #[arg(
+        long,
+        default_value = "3",
+        help = "分片上传失败重试次数（默认: 3）"
+    )]
+    pub retries: u32,
+
     #[arg(long, help = "启用多网卡负载均衡（自动探测可用网卡并分流）")]
     pub multi_net: bool,
 }
@@ -1461,6 +1468,7 @@ async fn upload_file_personal(
     file_name: &str,
     progress_bar: Option<&indicatif::ProgressBar>,
     http_client: &reqwest::Client,
+    retries: u32,
 ) -> Result<(), ClientError> {
     let client_wrapper = api::HttpClientWrapper::with_client(http_client.clone());
 
@@ -1554,6 +1562,7 @@ async fn upload_file_personal(
             part_size,
             progress_bar,
             http_client,
+            retries,
         )
         .await?;
     }
@@ -1574,6 +1583,7 @@ async fn upload_parts_personal(
     part_size: i64,
     progress_bar: Option<&indicatif::ProgressBar>,
     http_client: &reqwest::Client,
+    retries: u32,
 ) -> Result<(), ClientError> {
     use std::collections::HashMap;
     use std::fs::File;
@@ -1706,79 +1716,90 @@ async fn upload_parts_personal(
                 };
 
                 let content_len = buffer.len();
-                // P3: 跟踪本分片已上报的进度字节
-                let part_sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
-                let part_sent_stream = Arc::clone(&part_sent);
-                let uploaded_bytes_stream = Arc::clone(&uploaded_bytes);
-                let stream = futures_util::stream::unfold(
-                    (0usize, buffer, pb.clone()),
-                    move |(pos, buf, pb)| {
-                        let part_sent = Arc::clone(&part_sent_stream);
-                        let uploaded_bytes = Arc::clone(&uploaded_bytes_stream);
-                        async move {
-                            if pos >= buf.len() {
-                                return None;
-                            }
-                            let end = std::cmp::min(pos + 256 * 1024, buf.len());
-                            let chunk = buf[pos..end].to_vec();
-                            let delta = (end - pos) as u64;
-                            if let Some(ref pb) = pb {
-                                pb.inc(delta);
-                            }
-                            part_sent.fetch_add(delta, Ordering::Relaxed);
-                            uploaded_bytes.fetch_add(delta, Ordering::Relaxed);
-                            Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
-                        }
-                    },
-                );
-
                 let timeout_secs = std::cmp::max(120, (content_len as u64 / (200 * 1024)) + 120);
+                let part_sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
-                let resp = http_client
-                    .put(&upload_url)
-                    .header("Content-Type", "application/octet-stream")
-                    .header("Content-Length", content_len.to_string())
-                    .header("Origin", "https://yun.139.com")
-                    .header("Referer", "https://yun.139.com/")
-                    .timeout(std::time::Duration::from_secs(timeout_secs))
-                    .body(reqwest::Body::wrap_stream(stream))
-                    .send()
-                    .await;
-
-                match resp {
-                    Ok(r) if r.status().as_u16() == 200 => {}
-                    Ok(r) => {
-                        let err = ClientError::Api(format!(
-                            "分片 {} 上传失败: HTTP {}",
-                            part_number,
-                            r.status().as_u16()
-                        ));
-                        // P3: 回退本分片已上报的进度
+                let mut last_err: Option<ClientError> = None;
+                for attempt in 0..=retries {
+                    if attempt > 0 {
+                        // 回退上一次尝试已上报的进度
                         let rollback = part_sent.load(Ordering::Relaxed);
                         uploaded_bytes.fetch_sub(rollback, Ordering::Relaxed);
+                        part_sent.store(0, Ordering::Relaxed);
                         if let Some(ref pb) = pb {
                             pb.set_position(uploaded_bytes.load(Ordering::Relaxed));
                         }
-                        let mut guard = first_error.lock().unwrap();
-                        if guard.is_none() {
-                            *guard = Some(err);
+                        let delay = std::time::Duration::from_secs(1 << attempt.min(4));
+                        tokio::time::sleep(delay).await;
+                    }
+
+                    // P3: 跟踪本分片已上报的进度字节
+                    let part_sent_stream = Arc::clone(&part_sent);
+                    let uploaded_bytes_stream = Arc::clone(&uploaded_bytes);
+                    let stream = futures_util::stream::unfold(
+                        (0usize, buffer.clone(), pb.clone()),
+                        move |(pos, buf, pb)| {
+                            let part_sent = Arc::clone(&part_sent_stream);
+                            let uploaded_bytes = Arc::clone(&uploaded_bytes_stream);
+                            async move {
+                                if pos >= buf.len() {
+                                    return None;
+                                }
+                                let end = std::cmp::min(pos + 256 * 1024, buf.len());
+                                let chunk = buf[pos..end].to_vec();
+                                let delta = (end - pos) as u64;
+                                if let Some(ref pb) = pb {
+                                    pb.inc(delta);
+                                }
+                                part_sent.fetch_add(delta, Ordering::Relaxed);
+                                uploaded_bytes.fetch_add(delta, Ordering::Relaxed);
+                                Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
+                            }
+                        },
+                    );
+
+                    let resp = http_client
+                        .put(&upload_url)
+                        .header("Content-Type", "application/octet-stream")
+                        .header("Content-Length", content_len.to_string())
+                        .header("Origin", "https://yun.139.com")
+                        .header("Referer", "https://yun.139.com/")
+                        .timeout(std::time::Duration::from_secs(timeout_secs))
+                        .body(reqwest::Body::wrap_stream(stream))
+                        .send()
+                        .await;
+
+                    match resp {
+                        Ok(r) if r.status().as_u16() == 200 => {
+                            last_err = None;
+                            break;
+                        }
+                        Ok(r) => {
+                            last_err = Some(ClientError::Api(format!(
+                                "分片 {} 上传失败: HTTP {}",
+                                part_number,
+                                r.status().as_u16()
+                            )));
+                        }
+                        Err(e) => {
+                            last_err = Some(ClientError::Api(format!(
+                                "分片 {} 上传失败: {}",
+                                part_number, e
+                            )));
                         }
                     }
-                    Err(e) => {
-                        let err = ClientError::Api(format!(
-                            "分片 {} 上传失败: {}",
-                            part_number, e
-                        ));
-                        // P3: 回退本分片已上报的进度
-                        let rollback = part_sent.load(Ordering::Relaxed);
-                        uploaded_bytes.fetch_sub(rollback, Ordering::Relaxed);
-                        if let Some(ref pb) = pb {
-                            pb.set_position(uploaded_bytes.load(Ordering::Relaxed));
-                        }
-                        let mut guard = first_error.lock().unwrap();
-                        if guard.is_none() {
-                            *guard = Some(err);
-                        }
+                }
+
+                if let Some(err) = last_err {
+                    // 最终失败，回退进度
+                    let rollback = part_sent.load(Ordering::Relaxed);
+                    uploaded_bytes.fetch_sub(rollback, Ordering::Relaxed);
+                    if let Some(ref pb) = pb {
+                        pb.set_position(uploaded_bytes.load(Ordering::Relaxed));
+                    }
+                    let mut guard = first_error.lock().unwrap();
+                    if guard.is_none() {
+                        *guard = Some(err);
                     }
                 }
             });
@@ -1823,51 +1844,70 @@ async fn upload_parts_personal(
                 .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
             let content_len = buffer.len();
-            let pb_clone = progress_bar.cloned();
-
-            let stream = futures_util::stream::unfold(
-                (0usize, buffer, pb_clone),
-                |(pos, buf, pb)| async move {
-                    if pos >= buf.len() {
-                        return None;
-                    }
-                    let end = std::cmp::min(pos + 256 * 1024, buf.len());
-                    let chunk = buf[pos..end].to_vec();
-                    if let Some(ref pb) = pb {
-                        pb.inc((end - pos) as u64);
-                    }
-                    Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
-                },
-            );
-
             let timeout_secs = std::cmp::max(120, (content_len as u64 / (200 * 1024)) + 120);
+            let pos_before_part = progress_bar.as_ref().map(|pb| pb.position()).unwrap_or(0);
 
-            let resp = http_client
-                .put(&upload_url)
-                .header("Content-Type", "application/octet-stream")
-                .header("Content-Length", content_len.to_string())
-                .header("Origin", "https://yun.139.com")
-                .header("Referer", "https://yun.139.com/")
-                .timeout(std::time::Duration::from_secs(timeout_secs))
-                .body(reqwest::Body::wrap_stream(stream))
-                .send()
-                .await;
+            let mut last_err: Option<ClientError> = None;
+            for attempt in 0..=retries {
+                if attempt > 0 {
+                    // 回退上一次尝试的进度
+                    if let Some(ref pb) = progress_bar {
+                        pb.set_position(pos_before_part);
+                    }
+                    let delay = std::time::Duration::from_secs(1 << attempt.min(4));
+                    tokio::time::sleep(delay).await;
+                }
 
-            match resp {
-                Ok(r) if r.status().as_u16() == 200 => {}
-                Ok(r) => {
-                    return Err(ClientError::Api(format!(
-                        "分片 {} 上传失败: HTTP {}",
-                        part_number,
-                        r.status().as_u16()
-                    )));
+                let pb_clone = progress_bar.cloned();
+                let stream = futures_util::stream::unfold(
+                    (0usize, buffer.clone(), pb_clone),
+                    |(pos, buf, pb)| async move {
+                        if pos >= buf.len() {
+                            return None;
+                        }
+                        let end = std::cmp::min(pos + 256 * 1024, buf.len());
+                        let chunk = buf[pos..end].to_vec();
+                        if let Some(ref pb) = pb {
+                            pb.inc((end - pos) as u64);
+                        }
+                        Some((Ok::<_, std::io::Error>(chunk), (end, buf, pb)))
+                    },
+                );
+
+                let resp = http_client
+                    .put(&upload_url)
+                    .header("Content-Type", "application/octet-stream")
+                    .header("Content-Length", content_len.to_string())
+                    .header("Origin", "https://yun.139.com")
+                    .header("Referer", "https://yun.139.com/")
+                    .timeout(std::time::Duration::from_secs(timeout_secs))
+                    .body(reqwest::Body::wrap_stream(stream))
+                    .send()
+                    .await;
+
+                match resp {
+                    Ok(r) if r.status().as_u16() == 200 => {
+                        last_err = None;
+                        break;
+                    }
+                    Ok(r) => {
+                        last_err = Some(ClientError::Api(format!(
+                            "分片 {} 上传失败: HTTP {}",
+                            part_number,
+                            r.status().as_u16()
+                        )));
+                    }
+                    Err(e) => {
+                        last_err = Some(ClientError::Api(format!(
+                            "分片 {} 上传失败: {}",
+                            part_number, e
+                        )));
+                    }
                 }
-                Err(e) => {
-                    return Err(ClientError::Api(format!(
-                        "分片 {} 上传失败: {}",
-                        part_number, e
-                    )));
-                }
+            }
+
+            if let Some(err) = last_err {
+                return Err(err);
             }
         }
     }
@@ -2169,6 +2209,7 @@ async fn execute_personal(
             ensure_remote_root_personal(config, &host, remote_path, &http_client_shared).await?;
 
         let concurrency = args.concurrency;
+        let retries = args.retries;
 
         // Channels: scanner → consumers（unbounded: 背压由 semaphore 控制，send 永不阻塞）
         let (upload_tx, mut upload_rx) =
@@ -2340,6 +2381,7 @@ async fn execute_personal(
                             &job.file_name,
                             Some(&pb),
                             &http_client,
+                            retries,
                         )
                         .await;
 
