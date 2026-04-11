@@ -127,6 +127,8 @@ pub struct PersonalFileItem {
     pub last_modified: Option<String>,
     #[serde(rename = "thumbnailUrls", default)]
     pub thumbnail_urls: Option<Vec<PersonalThumbnail>>,
+    #[serde(rename = "contentHash", default)]
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

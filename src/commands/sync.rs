@@ -2,6 +2,7 @@ use crate::client::api;
 use crate::client::{ClientError, StorageType};
 use crate::{error, info, step, success};
 use clap::Parser;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -69,6 +70,7 @@ pub enum SyncMode {
 #[derive(Debug, Clone)]
 pub struct LocalFileEntry {
     pub relative_path: String,
+    pub absolute_path: String,
     pub size: i64,
     pub modified_epoch_ms: i64,
     pub is_dir: bool,
@@ -83,6 +85,7 @@ pub struct RemoteFileEntry {
     pub size: i64,
     pub modified_time: String,
     pub is_dir: bool,
+    pub content_hash: String,
 }
 
 /// 差异类型
@@ -413,6 +416,7 @@ fn scan_local_recursive(
         if metadata.is_dir() {
             entries.push(LocalFileEntry {
                 relative_path: relative.clone(),
+                absolute_path: path.to_string_lossy().to_string(),
                 size: 0,
                 modified_epoch_ms,
                 is_dir: true,
@@ -421,6 +425,7 @@ fn scan_local_recursive(
         } else if metadata.is_file() {
             entries.push(LocalFileEntry {
                 relative_path: relative,
+                absolute_path: path.to_string_lossy().to_string(),
                 size: metadata.len() as i64,
                 modified_epoch_ms,
                 is_dir: false,
@@ -539,6 +544,7 @@ async fn scan_remote_recursive_personal(
                 size,
                 modified_time,
                 is_dir,
+                content_hash: item.content_hash.clone().unwrap_or_default(),
             });
 
             if is_dir {
@@ -569,7 +575,9 @@ async fn scan_remote_recursive_personal(
 // ---------------------------------------------------------------------------
 
 /// 比较本地和远程文件树，产出差异列表
-pub fn compute_diff(
+///
+/// 当文件大小相同时，通过 `spawn_blocking` 并行计算本地 SHA-256 与远程哈希比较。
+pub async fn compute_diff(
     local_entries: &[LocalFileEntry],
     remote_entries: &[RemoteFileEntry],
 ) -> Vec<DiffEntry> {
@@ -618,6 +626,8 @@ pub fn compute_diff(
     }
 
     // Files in both — check for modifications
+    let mut hash_futures = FuturesUnordered::new();
+
     for local in local_entries {
         if local.is_dir {
             continue;
@@ -626,8 +636,9 @@ pub fn compute_diff(
             if remote.is_dir {
                 continue;
             }
-            // Size differs → modified
+
             if local.size != remote.size {
+                // 大小不同 → 直接判定不同
                 let kind = determine_newer(local, remote);
                 diffs.push(DiffEntry {
                     relative_path: local.relative_path.clone(),
@@ -636,7 +647,42 @@ pub fn compute_diff(
                     remote: Some((*remote).clone()),
                     is_dir: false,
                 });
+            } else if !remote.content_hash.is_empty() {
+                // 大小相同 → spawn_blocking 并行计算本地哈希
+                let local_clone = local.clone();
+                let remote_clone = (*remote).clone();
+                let path = local.absolute_path.clone();
+                let remote_hash = remote.content_hash.clone();
+
+                hash_futures.push(async move {
+                    let local_hash = tokio::task::spawn_blocking(move || {
+                        crate::utils::crypto::calc_file_sha256(&path).unwrap_or_default()
+                    })
+                    .await
+                    .unwrap_or_default();
+
+                    if local_hash != remote_hash {
+                        let kind = determine_newer(&local_clone, &remote_clone);
+                        Some(DiffEntry {
+                            relative_path: local_clone.relative_path.clone(),
+                            kind,
+                            local: Some(local_clone),
+                            remote: Some(remote_clone),
+                            is_dir: false,
+                        })
+                    } else {
+                        None
+                    }
+                });
             }
+            // 大小相同但远程无 hash → 跳过（视为相同）
+        }
+    }
+
+    // 流式收集哈希比较结果
+    while let Some(result) = hash_futures.next().await {
+        if let Some(diff) = result {
+            diffs.push(diff);
         }
     }
 
@@ -816,6 +862,7 @@ fn item_to_remote_entry(
             size,
             modified_time,
             is_dir,
+            content_hash: item.content_hash.clone().unwrap_or_default(),
         },
         is_dir,
     ))
@@ -2723,23 +2770,24 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_compute_diff_only_local() {
+    #[tokio::test]
+    async fn test_compute_diff_only_local() {
         let local = vec![LocalFileEntry {
             relative_path: "file1.txt".to_string(),
+            absolute_path: String::new(),
             size: 100,
             modified_epoch_ms: 1000,
             is_dir: false,
         }];
         let remote: Vec<RemoteFileEntry> = vec![];
 
-        let diffs = compute_diff(&local, &remote);
+        let diffs = compute_diff(&local, &remote).await;
         assert_eq!(diffs.len(), 1);
         assert!(matches!(diffs[0].kind, DiffKind::OnlyLocal));
     }
 
-    #[test]
-    fn test_compute_diff_only_remote() {
+    #[tokio::test]
+    async fn test_compute_diff_only_remote() {
         let local: Vec<LocalFileEntry> = vec![];
         let remote = vec![RemoteFileEntry {
             relative_path: "file1.txt".to_string(),
@@ -2748,17 +2796,20 @@ mod tests {
             size: 200,
             modified_time: "2024-01-01T12:00:00.000".to_string(),
             is_dir: false,
+            content_hash: String::new(),
         }];
 
-        let diffs = compute_diff(&local, &remote);
+        let diffs = compute_diff(&local, &remote).await;
         assert_eq!(diffs.len(), 1);
         assert!(matches!(diffs[0].kind, DiffKind::OnlyRemote));
     }
 
-    #[test]
-    fn test_compute_diff_same_file() {
+    #[tokio::test]
+    async fn test_compute_diff_same_file() {
+        // 大小相同 + 远程无 hash → 回退跳过
         let local = vec![LocalFileEntry {
             relative_path: "file1.txt".to_string(),
+            absolute_path: String::new(),
             size: 100,
             modified_epoch_ms: 1000,
             is_dir: false,
@@ -2770,16 +2821,18 @@ mod tests {
             size: 100,
             modified_time: "".to_string(),
             is_dir: false,
+            content_hash: String::new(),
         }];
 
-        let diffs = compute_diff(&local, &remote);
+        let diffs = compute_diff(&local, &remote).await;
         assert_eq!(diffs.len(), 0);
     }
 
-    #[test]
-    fn test_compute_diff_modified() {
+    #[tokio::test]
+    async fn test_compute_diff_modified() {
         let local = vec![LocalFileEntry {
             relative_path: "file1.txt".to_string(),
+            absolute_path: String::new(),
             size: 200,
             modified_epoch_ms: 2000000,
             is_dir: false,
@@ -2791,9 +2844,10 @@ mod tests {
             size: 100,
             modified_time: "2024-01-01T00:00:00.000".to_string(),
             is_dir: false,
+            content_hash: String::new(),
         }];
 
-        let diffs = compute_diff(&local, &remote);
+        let diffs = compute_diff(&local, &remote).await;
         assert_eq!(diffs.len(), 1);
         assert!(matches!(
             diffs[0].kind,
@@ -2801,17 +2855,75 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_compute_diff_skips_dirs() {
+    #[tokio::test]
+    async fn test_compute_diff_same_size_same_hash() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), b"hello").unwrap();
+        let hash = crate::utils::crypto::calc_file_sha256(tmp.path().to_str().unwrap()).unwrap();
+
+        let local = vec![LocalFileEntry {
+            relative_path: "file1.txt".to_string(),
+            absolute_path: tmp.path().to_string_lossy().to_string(),
+            size: 5,
+            modified_epoch_ms: 1000,
+            is_dir: false,
+        }];
+        let remote = vec![RemoteFileEntry {
+            relative_path: "file1.txt".to_string(),
+            name: "file1.txt".to_string(),
+            file_id: "id1".to_string(),
+            size: 5,
+            modified_time: "".to_string(),
+            is_dir: false,
+            content_hash: hash,
+        }];
+
+        let diffs = compute_diff(&local, &remote).await;
+        assert_eq!(diffs.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_compute_diff_same_size_diff_hash() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), b"hello").unwrap();
+
+        let local = vec![LocalFileEntry {
+            relative_path: "file1.txt".to_string(),
+            absolute_path: tmp.path().to_string_lossy().to_string(),
+            size: 5,
+            modified_epoch_ms: 2000000,
+            is_dir: false,
+        }];
+        let remote = vec![RemoteFileEntry {
+            relative_path: "file1.txt".to_string(),
+            name: "file1.txt".to_string(),
+            file_id: "id1".to_string(),
+            size: 5,
+            modified_time: "2024-01-01T00:00:00.000".to_string(),
+            is_dir: false,
+            content_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        }];
+
+        let diffs = compute_diff(&local, &remote).await;
+        assert_eq!(diffs.len(), 1);
+        assert!(matches!(
+            diffs[0].kind,
+            DiffKind::LocalNewer | DiffKind::RemoteNewer
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_compute_diff_skips_dirs() {
         let local = vec![LocalFileEntry {
             relative_path: "subdir".to_string(),
+            absolute_path: String::new(),
             size: 0,
             modified_epoch_ms: 0,
             is_dir: true,
         }];
         let remote: Vec<RemoteFileEntry> = vec![];
 
-        let diffs = compute_diff(&local, &remote);
+        let diffs = compute_diff(&local, &remote).await;
         assert_eq!(diffs.len(), 0);
     }
 

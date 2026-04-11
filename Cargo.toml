@@ -48,6 +48,7 @@ tempfile = "3"
 mockall = "0.14"
 httpmock = "0.8"
 serde_json = "1"
+ctor = "0.4"
 
 [[bin]]
 name = "cloud139"
